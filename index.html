@@ -20,6 +20,8 @@ html,body{margin:0;height:100%;overflow:hidden;background:#f6f3e7;overscroll-beh
 canvas{position:fixed;inset:0;display:block}
 #pause{position:fixed;top:calc(env(safe-area-inset-top,0px) + 18px);right:10px;width:42px;height:42px;border-radius:12px;
   border:2px solid #2b3a8f;background:#fffdf5;font-size:16px;display:none;touch-action:manipulation}
+#cheat{position:fixed;top:calc(env(safe-area-inset-top,0px) + 70px);right:10px;width:42px;height:42px;border-radius:50%;
+  border:2px solid #7a0f0f;background:#e0261b;color:#fff;font-size:11px;font-weight:800;display:none;touch-action:manipulation}
 #ui{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(246,243,231,.92);
   padding:20px;padding-top:calc(env(safe-area-inset-top,0px) + 20px);overflow:auto}
 #ui.show{display:flex}
@@ -52,6 +54,7 @@ button.card{display:flex;gap:14px;align-items:center;text-align:left;width:100%;
 <body>
 <canvas id="c"></canvas>
 <button id="pause" aria-label="Пауза">⏸</button>
+<button id="cheat" aria-label="Тест">ТЕСТ</button>
 <div id="ui"></div>
 <script src="game.js"></script>
 </body>
