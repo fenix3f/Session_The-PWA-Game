@@ -10,6 +10,7 @@ const MAXE = 350;          // максимум врагов одновремен
 const TAU = Math.PI * 2;
 const EF = '"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif';
 const KEY = 'sessiya_v1';
+const BUILD = '0.2';
 
 const cv = document.getElementById('c');
 const ctx = cv.getContext('2d');
@@ -83,12 +84,16 @@ function makeSprites() {
   SPR = {
     player: emojiSprite('🧑‍🎓', 38),
     enemy: emojiSprite('📕', 30),
+    ref: emojiSprite('📄', 24),
+    lab: emojiSprite('🧪', 30),
+    boss: emojiSprite('📚', 48),
     gem: emojiSprite('✅', 16),
     sheet: emojiSprite('📜', 28),
     google: emojiSprite('🔍', 26)
   };
 }
 function drawSpr(s, x, y) { ctx.drawImage(s.c, x - s.w / 2, y - s.h / 2, s.w, s.h); }
+function drawSprK(s, x, y, k) { ctx.drawImage(s.c, x - s.w * k / 2, y - s.h * k / 2, s.w * k, s.h * k); }
 
 // ---------- описания оружия и пассивок ----------
 const WDEF = {
@@ -125,6 +130,19 @@ const ST = {
   ]
 };
 const needXp = l => 4 + l * 3;
+
+// ---------- типы врагов ----------
+// hp: множитель здоровья, spd: множитель скорости, dmg: множитель урона при касании,
+// xp: сколько баллов падает, kb: насколько сильно отбрасывает
+const ET = {
+  c: { name: 'Курсовая',        spr: 'enemy', r: 13, hp: 1,    spd: 1,    dmg: 1,   xp: 1,  kb: 1 },
+  r: { name: 'Реферат',         spr: 'ref',   r: 10, hp: 0.45, spd: 1.55, dmg: 0.6, xp: 1,  kb: 1.3 },
+  l: { name: 'Лабораторная',    spr: 'lab',   r: 13, hp: 1.2,  spd: 0.7,  dmg: 1,   xp: 2,  kb: 1, ranged: true, keep: 240 },
+  a: { name: 'Автомат отменён', spr: 'boss',  r: 21, hp: 8,    spd: 0.8,  dmg: 2,   xp: 14, kb: 0.25, elite: true }
+};
+// когда приходят элитные враги: [секунда, сколько]
+const ELITE = [{ t: 95, n: 1 }, { t: 185, n: 2 }, { t: 255, n: 3 }];
+const MAXLAB = 10;         // максимум стрелков одновременно
 
 // ---------- ввод ----------
 const joy = { active: false, id: -1, ox: 0, oy: 0, px: 0, py: 0, x: 0, y: 0 };
@@ -191,8 +209,9 @@ function newGame(startWeapon) {
     t: 0, kills: 0, level: 1, xp: 0, need: needXp(1),
     p: { x: MAP / 2, y: MAP / 2, hp: 100, max: 100, inv: 0, fx: 0, fy: 1, r: 12 },
     w: {}, ps: {}, wt: {},
-    en: [], gems: [], pr: [], fx: [],
-    spawn: 0.5, orbA: 0, shake: 0, over: false, win: false,
+    en: [], gems: [], pr: [], fx: [], ep: [],
+    spawn: 0.5, swarm: 20, eliteI: 0, nLab: 0, msg: null,
+    orbA: 0, shake: 0, over: false, win: false,
     decor: makeDecor(),
     grid: Array.from({ length: GN * GN }, () => [])
   };
@@ -214,10 +233,36 @@ function spawnPos() {
     if (Math.hypot(x - p.x, y - p.y) > R * 0.85) return;
   }
 }
-function spawnEnemy() {
+function addEnemy(type, x, y) {
+  const T = ET[type];
+  const hp = (10 + G.t * 0.12) * T.hp;
+  G.en.push({ type, T, r: T.r, x, y, hp, mh: hp, kx: 0, ky: 0, ob: 0, fl: 0, sh: 1 + Math.random() * 2, dead: false });
+}
+function spawnEnemy(type) {
   spawnPos();
-  const hp = 10 + G.t * 0.12;
-  G.en.push({ x: sp.x, y: sp.y, hp, mh: hp, kx: 0, ky: 0, ob: 0, fl: 0, dead: false });
+  addEnemy(type || 'c', sp.x, sp.y);
+}
+// обычный спавн: курсовые, а со второй минуты ещё и лабораторные
+function pickType() {
+  const t = G.t;
+  if (t > 60 && G.nLab < MAXLAB && Math.random() < Math.min(0.2, 0.06 + (t - 60) / 1500)) return 'l';
+  return 'c';
+}
+// рой рефератов: стая налетает с одной стороны
+function spawnSwarm() {
+  const n = Math.min(18, 6 + Math.floor(G.t / 25));
+  spawnPos();
+  const bx = sp.x, by = sp.y;
+  for (let i = 0; i < n && G.en.length < MAXE; i++) {
+    addEnemy('r', clamp(bx + rnd(-45, 45), 20, MAP - 20), clamp(by + rnd(-45, 45), 20, MAP - 20));
+  }
+}
+function hurtPlayer(n) {
+  const g = G, p = g.p;
+  p.hp -= n; p.inv = 0.7; g.shake = 6;
+  try { if (navigator.vibrate) navigator.vibrate(25); } catch (_) {}
+  if (p.hp <= 0) { p.hp = 0; finish(false); return true; }
+  return false;
 }
 
 // ---------- сетка для быстрых запросов ----------
@@ -243,7 +288,7 @@ function near(x, y, r) {
   return nb;
 }
 function separate() {
-  const MIN = 22, MIN2 = MIN * MIN, grid = G.grid;
+  const grid = G.grid;
   for (const e of G.en) {
     if (e.dead) continue;
     const cx = clamp(Math.floor(e.x / CS), 0, GN - 1), cy = clamp(Math.floor(e.y / CS), 0, GN - 1);
@@ -255,7 +300,8 @@ function separate() {
         const o = a[k];
         if (o === e) continue;
         const dx = e.x - o.x, dy = e.y - o.y, d2 = dx * dx + dy * dy;
-        if (d2 < MIN2 && d2 > 0.01) {
+        const MIN = (e.r + o.r) * 0.85;
+        if (d2 < MIN * MIN && d2 > 0.01) {
           const d = Math.sqrt(d2), push = (MIN - d) * 0.5;
           e.x += dx / d * push; e.y += dy / d * push;
         }
@@ -269,14 +315,16 @@ function addFx(o) { if (G.fx.length < 80) G.fx.push(o); }
 function hitEnemy(e, dmg, kx, ky) {
   if (e.dead) return;
   e.hp -= dmg; e.fl = 0.08;
-  e.kx = clamp(e.kx + kx, -320, 320); e.ky = clamp(e.ky + ky, -320, 320);
+  const kb = e.T.kb;
+  e.kx = clamp(e.kx + kx * kb, -320, 320); e.ky = clamp(e.ky + ky * kb, -320, 320);
   if (e.hp <= 0) killEnemy(e);
 }
 function killEnemy(e) {
   e.dead = true; G.kills++;
-  if (G.gems.length < 500) G.gems.push({ x: e.x, y: e.y, v: 1, mg: false, dead: false });
-  else G.xp += 1;
-  addFx({ k: 'pop', x: e.x, y: e.y, t: 0, d: 0.25 });
+  const v = e.T.xp;
+  if (G.gems.length < 500) G.gems.push({ x: e.x, y: e.y, v, mg: false, dead: false });
+  else G.xp += v;
+  addFx({ k: 'pop', x: e.x, y: e.y, t: 0, d: e.T.elite ? 0.45 : 0.25, big: e.T.elite ? 3 : 1 });
 }
 
 // ---------- обновление ----------
@@ -307,8 +355,21 @@ function update(dt) {
   if (g.spawn <= 0) {
     g.spawn += Math.max(0.25, 0.9 - g.t * 0.0022);
     const batch = 1 + Math.floor(g.t / 90);
-    for (let i = 0; i < batch && g.en.length < MAXE; i++) spawnEnemy();
+    for (let i = 0; i < batch && g.en.length < MAXE; i++) spawnEnemy(pickType());
   }
+  // рои рефератов
+  g.swarm -= dt;
+  if (g.swarm <= 0) {
+    g.swarm = Math.max(7, 16 - g.t / 30);
+    spawnSwarm();
+  }
+  // элитные «автоматы отменены»
+  if (g.eliteI < ELITE.length && g.t >= ELITE[g.eliteI].t) {
+    const n = ELITE[g.eliteI++].n;
+    for (let i = 0; i < n; i++) spawnEnemy('a');
+    g.msg = { text: 'Автомат отменён!', t: 2.5 };
+  }
+  if (g.msg) { g.msg.t -= dt; if (g.msg.t <= 0) g.msg = null; }
 
   buildGrid();
   separate();
@@ -318,18 +379,43 @@ function update(dt) {
   const esp = 52 + Math.min(g.t * 0.12, 30);
   const dmgIn = 8 + Math.floor(g.t / 60) * 2;
   const kdec = Math.exp(-7 * dt);
+  let labs = 0;
   for (const e of g.en) {
     if (e.dead) continue;
+    const T = e.T;
     const dx = p.x - e.x, dy = p.y - e.y, d = Math.hypot(dx, dy) || 1;
     if (d > far) { spawnPos(); e.x = sp.x; e.y = sp.y; continue; }
+    let mx = dx / d, my = dy / d, sm = T.spd;
+    if (T.ranged) {
+      labs++;
+      if (d < T.keep - 40) { mx = -mx; my = -my; sm = T.spd * 0.8; } // отступает, если подошёл близко
+      else if (d < T.keep + 20) sm = 0;                              // держит дистанцию
+      e.sh -= dt;
+      if (e.sh <= 0 && d < 420) {                                    // стреляет задачей
+        e.sh = 2.6 + Math.random() * 0.8;
+        g.ep.push({ x: e.x, y: e.y, vx: dx / d * 150, vy: dy / d * 150, life: 3.5, r: 6 });
+      }
+    }
     e.kx *= kdec; e.ky *= kdec;
-    e.x = clamp(e.x + (dx / d * esp + e.kx) * dt, 12, MAP - 12);
-    e.y = clamp(e.y + (dy / d * esp + e.ky) * dt, 12, MAP - 12);
+    e.x = clamp(e.x + (mx * esp * sm + e.kx) * dt, 12, MAP - 12);
+    e.y = clamp(e.y + (my * esp * sm + e.ky) * dt, 12, MAP - 12);
     e.ob -= dt; if (e.fl > 0) e.fl -= dt;
-    if (d < 27 && p.inv <= 0) {
-      p.hp -= dmgIn; p.inv = 0.7; g.shake = 6;
-      try { if (navigator.vibrate) navigator.vibrate(25); } catch (_) {}
-      if (p.hp <= 0) { p.hp = 0; finish(false); return; }
+    if (d < e.r + 14 && p.inv <= 0) {
+      if (hurtPlayer(Math.round(dmgIn * T.dmg))) return;
+    }
+  }
+  g.nLab = labs;
+
+  // снаряды врагов (задачи от лабораторных)
+  for (const b of g.ep) {
+    b.x += b.vx * dt; b.y += b.vy * dt; b.life -= dt;
+    if (b.x < -50 || b.y < -50 || b.x > MAP + 50 || b.y > MAP + 50) b.life = 0;
+    if (b.life > 0 && p.inv <= 0) {
+      const dx = p.x - b.x, dy = p.y - b.y, rr = b.r + p.r;
+      if (dx * dx + dy * dy < rr * rr) {
+        b.life = 0;
+        if (hurtPlayer(8 + Math.floor(g.t / 60))) return;
+      }
     }
   }
 
@@ -340,12 +426,12 @@ function update(dt) {
     for (let i = 0; i < s.n; i++) {
       const a = g.orbA + i * TAU / s.n;
       const ox = p.x + Math.cos(a) * s.R, oy = p.y + Math.sin(a) * s.R;
-      const list = near(ox, oy, 30);
+      const list = near(ox, oy, 40);
       for (let k = 0; k < list.length; k++) {
         const e = list[k];
         if (e.dead || e.ob > 0) continue;
-        const dx = e.x - ox, dy = e.y - oy;
-        if (dx * dx + dy * dy < 28 * 28) {
+        const dx = e.x - ox, dy = e.y - oy, hr = 14 + e.r;
+        if (dx * dx + dy * dy < hr * hr) {
           const ax = e.x - p.x, ay = e.y - p.y, al = Math.hypot(ax, ay) || 1;
           hitEnemy(e, s.dmg * mulDmg, ax / al * 90, ay / al * 90);
           e.ob = 0.35;
@@ -401,12 +487,12 @@ function update(dt) {
     if (g.wt.energy <= 0) {
       const s = ST.energy[w.energy - 1];
       g.wt.energy = s.cd * mulCd;
-      const list = near(p.x, p.y, s.rad + 20);
+      const list = near(p.x, p.y, s.rad + 26);
       for (let k = 0; k < list.length; k++) {
         const e = list[k];
         if (e.dead) continue;
         const dx = e.x - p.x, dy = e.y - p.y, d = Math.hypot(dx, dy) || 1;
-        if (d < s.rad + 13) hitEnemy(e, s.dmg * mulDmg, dx / d * 260, dy / d * 260);
+        if (d < s.rad + e.r) hitEnemy(e, s.dmg * mulDmg, dx / d * 260, dy / d * 260);
       }
       addFx({ k: 'ring', x: p.x, y: p.y, max: s.rad, t: 0, d: 0.35 });
       g.shake = Math.max(g.shake, 3);
@@ -435,12 +521,11 @@ function update(dt) {
     pr.x += pr.vx * dt; pr.y += pr.vy * dt; pr.life -= dt;
     if (pr.x < -50 || pr.y < -50 || pr.x > MAP + 50 || pr.y > MAP + 50) pr.life = 0;
     if (pr.life <= 0) continue;
-    const list = near(pr.x, pr.y, pr.r + 16);
-    const rr = (pr.r + 13) * (pr.r + 13);
+    const list = near(pr.x, pr.y, pr.r + 26);
     for (let k = 0; k < list.length; k++) {
       const e = list[k];
       if (e.dead) continue;
-      const dx = e.x - pr.x, dy = e.y - pr.y;
+      const dx = e.x - pr.x, dy = e.y - pr.y, rr = (pr.r + e.r) * (pr.r + e.r);
       if (dx * dx + dy * dy > rr) continue;
       if (pr.hit && pr.hit.indexOf(e) >= 0) continue;
       const vl = Math.hypot(pr.vx, pr.vy) || 1;
@@ -466,6 +551,7 @@ function update(dt) {
   // уборка
   compact(g.en, e => !e.dead);
   compact(g.pr, o => o.life > 0);
+  compact(g.ep, o => o.life > 0);
   compact(g.gems, o => !o.dead);
   compact(g.fx, o => o.t < o.d);
 
@@ -539,13 +625,28 @@ function render() {
   // баллы
   for (const gm of g.gems) {
     if (gm.x < x0 || gm.x > x1 || gm.y < y0 || gm.y > y1) continue;
-    drawSpr(SPR.gem, gm.x, gm.y);
+    if (gm.v > 1) drawSprK(SPR.gem, gm.x, gm.y, gm.v >= 10 ? 2 : 1.5);
+    else drawSpr(SPR.gem, gm.x, gm.y);
   }
   // враги
   for (const e of g.en) {
     if (e.x < x0 || e.x > x1 || e.y < y0 || e.y > y1) continue;
-    drawSpr(SPR.enemy, e.x, e.y);
-    if (e.fl > 0) { ctx.fillStyle = 'rgba(255,255,255,0.55)'; ctx.beginPath(); ctx.arc(e.x, e.y, 13, 0, TAU); ctx.fill(); }
+    const T = e.T;
+    if (T.elite) { // красная аура у элитных
+      ctx.fillStyle = 'rgba(217,66,58,0.22)'; ctx.beginPath(); ctx.arc(e.x, e.y, e.r + 8, 0, TAU); ctx.fill();
+    }
+    drawSpr(SPR[T.spr], e.x, e.y);
+    if (e.fl > 0) { ctx.fillStyle = 'rgba(255,255,255,0.55)'; ctx.beginPath(); ctx.arc(e.x, e.y, e.r, 0, TAU); ctx.fill(); }
+    if (T.elite) { // полоска здоровья
+      ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.fillRect(e.x - 22, e.y - e.r - 14, 44, 5);
+      ctx.fillStyle = '#d9423a'; ctx.fillRect(e.x - 22, e.y - e.r - 14, 44 * Math.max(0, e.hp / e.mh), 5);
+    }
+  }
+  // задачи от лабораторных
+  for (const b of g.ep) {
+    if (b.x < x0 || b.x > x1 || b.y < y0 || b.y > y1) continue;
+    ctx.fillStyle = '#d9423a'; ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, TAU); ctx.fill(); ctx.stroke();
   }
   // игрок
   ctx.fillStyle = 'rgba(0,0,0,0.15)'; ctx.beginPath(); ctx.ellipse(p.x, p.y + 14, 13, 5, 0, 0, TAU); ctx.fill();
@@ -586,7 +687,7 @@ function render() {
       ctx.beginPath(); ctx.arc(f.x, f.y, r, 0, TAU); ctx.stroke();
     } else {
       ctx.strokeStyle = 'rgba(90,90,90,' + (0.7 * (1 - k)) + ')'; ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.arc(f.x, f.y, 4 + 12 * k, 0, TAU); ctx.stroke();
+      ctx.beginPath(); ctx.arc(f.x, f.y, (4 + 12 * k) * (f.big || 1), 0, TAU); ctx.stroke();
     }
   }
   ctx.restore();
@@ -626,8 +727,20 @@ function drawHud() {
   ctx.fillStyle = 'rgba(251,248,238,0.85)'; ctx.fillRect(mx, my, s, s);
   ctx.strokeStyle = '#2b3a8f'; ctx.lineWidth = 2; ctx.strokeRect(mx, my, s, s);
   ctx.fillStyle = '#d9423a';
-  for (const e of g.en) ctx.fillRect(mx + e.x * k - 1, my + e.y * k - 1, 2, 2);
+  for (const e of g.en) if (!e.T.elite) ctx.fillRect(mx + e.x * k - 1, my + e.y * k - 1, 2, 2);
+  ctx.fillStyle = '#7a0f0f';
+  for (const e of g.en) if (e.T.elite) ctx.fillRect(mx + e.x * k - 2.5, my + e.y * k - 2.5, 5, 5);
   ctx.fillStyle = '#2b3a8f'; ctx.beginPath(); ctx.arc(mx + p.x * k, my + p.y * k, 3.5, 0, TAU); ctx.fill();
+  // баннер появления элитных
+  if (g.msg) {
+    const a = Math.min(1, g.msg.t / 0.5);
+    ctx.globalAlpha = a;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.font = 'bold 22px sans-serif';
+    ctx.lineWidth = 5; ctx.strokeStyle = 'rgba(251,248,238,0.95)'; ctx.strokeText('⚠ ' + g.msg.text, W / 2, SAFE + 110);
+    ctx.fillStyle = '#c0392b'; ctx.fillText('⚠ ' + g.msg.text, W / 2, SAFE + 110);
+    ctx.globalAlpha = 1;
+  }
 }
 
 // ---------- экраны ----------
@@ -647,7 +760,7 @@ function screenMenu() {
     '<p class="hint">Рекорд: ' + mmss(save.best) + ' · макс. убито: ' + save.kills + ' · сдано сессий: ' + save.wins + '</p>' +
     '<p class="hint">Тяни палец по ' + (save.side === 'left' ? 'левой' : 'правой') + ' половине экрана, появится круг. Оружие бьёт само.</p>' +
     (isStandalone() ? '' : '<p class="hint">Совет: «Поделиться» → «На экран Домой», и это будет как приложение.</p>') +
-    '</div>';
+    '<p class="hint">Build ' + BUILD + '</p></div>';
 }
 function screenPick() {
   let h = '<div class="panel"><h2>Выбери оружие</h2>';
