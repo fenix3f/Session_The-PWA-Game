@@ -3,15 +3,14 @@
 
 // ---------- настройки ----------
 const MAP = 2400;          // размер карты (px)
-const SESSION = 300;       // сколько секунд нужно продержаться (5 минут)
+const BOSS_EVERY = 300;    // босс приходит каждые 5 минут
 const CS = 80;             // размер ячейки сетки для столкновений
 const GN = Math.ceil(MAP / CS);
 const MAXE = 350;          // максимум врагов одновременно
 const TAU = Math.PI * 2;
 const EF = '"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif';
 const KEY = 'sessiya_v1';
-const BUILD = '0.3a01';
-const BOSS_T = 150;        // на какой секунде приходит первый босс (2:30)
+const BUILD = '0.4';
 const INS_SPD = 200;       // скорость оскорблений препода
 const INS_TURN = 0.6;      // как быстро они доворачивают к игроку (рад/с)
 const INS_TURN_MAX = 1.0;  // и на сколько всего могут довернуть (рад, около 57°), чтобы только чуть скашивались
@@ -24,7 +23,7 @@ const pauseBtn = document.getElementById('pause');
 let W = 0, H = 0, DPR = 1, SC = 1, SAFE = 0;
 
 // ---------- сохранение ----------
-const DEF_SAVE = { best: 0, kills: 0, side: 'left', wins: 0 };
+const DEF_SAVE = { best: 0, kills: 0, side: 'left', wins: 0, lvl: 0, bosses: 0 };
 function loadSave() {
   try { return Object.assign({}, DEF_SAVE, JSON.parse(localStorage.getItem(KEY) || '{}')); }
   catch (e) { return Object.assign({}, DEF_SAVE); }
@@ -94,7 +93,14 @@ function makeSprites() {
     gem: emojiSprite('✅', 16),
     sheet: emojiSprite('📜', 28),
     google: emojiSprite('🔍', 26),
-    teacher: emojiSprite('👩‍🏫', 72)
+    teacher: emojiSprite('👩‍🏫', 72),
+    boy: emojiSprite('👦', 38),
+    girl: emojiSprite('👧', 38),
+    medal: emojiSprite('🏅', 24),
+    phone: emojiSprite('📱', 22),
+    i_shield: emojiSprite('🛡️', 28),
+    i_cig: emojiSprite('🚬', 26),
+    i_clock: emojiSprite('⏰', 28)
   };
   loadImgSprite('boss.png', 76, 'teacher');
 }
@@ -120,7 +126,20 @@ const WDEF = {
   sheet:  { n: 'Шпаргалка', ic: '📜', d: ['Шпаргалки кружат вокруг тебя', '+1 шпаргалка', 'Больше урона и шире круг', '+1 шпаргалка', 'Ещё +1 и быстрее вращение'] },
   google: { n: 'Гугл',      ic: '🔍', d: ['Самонаводящийся запрос в ближайшего врага', 'Быстрее и сильнее', 'Два запроса сразу', 'Ещё сильнее', 'Три запроса сразу'] },
   energy: { n: 'Энергетик', ic: '🥤', d: ['Взрывная волна вокруг тебя', 'Шире и чаще', 'Сильнее удар', 'Ещё шире и чаще', 'Максимальный заряд'] },
-  pen:    { n: 'Ручка',     ic: '🖊️', d: ['Пробивающий выстрел по ходу движения', 'Две ручки', 'Быстрее и сильнее', 'Три ручки', 'Четыре ручки, пробивают больше'] }
+  pen:    { n: 'Ручка',     ic: '🖊️', d: ['Пробивающий выстрел по ходу движения', 'Две ручки', 'Быстрее и сильнее', 'Три ручки', 'Четыре ручки, пробивают больше'] },
+  lip:    { n: 'Помада',    ic: '💄', d: ['Оставляет за тобой красный след, он жжёт врагов', 'След шире', 'Сильнее и держится дольше', 'Ещё шире', 'Алая дорожка, максимум'] },
+  medal:  { n: 'Медаль',    ic: '🏅', d: ['Отлетает в случайную сторону и взрывается', 'Взрыв сильнее', 'Две медали сразу', 'Шире и мощнее взрыв', 'Три медали сразу'] },
+  phone:  { n: 'Телефон',   ic: '📱', d: ['Щит в ту сторону, куда смотришь', 'Щит шире', 'Щит бьёт врагов сильнее', 'Ещё шире', 'Огромный щит, бьёт сильнее'] }
+};
+// классы: стартовое оружие и особенность; характеристики растут с уровнем
+const CLS = {
+  boy:  { n: 'Мальчик', ic: '👦', spr: 'boy',  w: 'pen', hp: 130, spd: 1,    hpL: 8, spL: 0.004, d: 'Старт: Ручка. Больше HP, с уровнем растёт ещё' },
+  girl: { n: 'Девочка', ic: '👧', spr: 'girl', w: 'lip', hp: 100, spd: 1.15, hpL: 3, spL: 0.015, d: 'Старт: Помада. Быстрее, с уровнем ещё быстрее' }
+};
+const PICK = {
+  cig:   { n: 'Сигарета', max: 5, w: 5 },
+  shield:{ n: 'Щит',      max: 2, w: 2 },
+  clock: { n: 'Часы',     max: 2, w: 2 }
 };
 const PDEF = {
   speed:  { n: 'Кроссовки', ic: '👟', d: '+10% к скорости' },
@@ -147,8 +166,20 @@ const ST = {
     { cd: 1.0, n: 1, dmg: 11, pierce: 2 }, { cd: 0.9, n: 2, dmg: 12, pierce: 2 },
     { cd: 0.75, n: 2, dmg: 15, pierce: 3 }, { cd: 0.7, n: 3, dmg: 16, pierce: 3 },
     { cd: 0.6, n: 4, dmg: 20, pierce: 5 }
+  ],
+  lip: [
+    { dmg: 6,  r: 16, life: 1.5 }, { dmg: 7,  r: 20, life: 1.7 }, { dmg: 10, r: 20, life: 2.0 },
+    { dmg: 11, r: 25, life: 2.2 }, { dmg: 15, r: 28, life: 2.6 }
+  ],
+  medal: [
+    { cd: 2.6, n: 1, rad: 70,  dmg: 24 }, { cd: 2.4, n: 1, rad: 80,  dmg: 32 }, { cd: 2.2, n: 2, rad: 80,  dmg: 32 },
+    { cd: 2.0, n: 2, rad: 95,  dmg: 42 }, { cd: 1.8, n: 3, rad: 105, dmg: 50 }
+  ],
+  phone: [
+    { arc: 0.8, dmg: 4 }, { arc: 0.95, dmg: 5 }, { arc: 0.95, dmg: 9 }, { arc: 1.15, dmg: 10 }, { arc: 1.4, dmg: 15 }
   ]
 };
+const SR = 36; // радиус щита-телефона
 const needXp = l => 4 + l * 3;
 
 // ---------- типы врагов ----------
@@ -170,8 +201,7 @@ const INS = [
   { t: 'У тебя кругозор как у точки', s: '•' },
   { t: 'Поделю тебя на ноль', s: '÷0' }
 ];
-// когда приходят элитные враги: [секунда, сколько]
-const ELITE = [{ t: 95, n: 1 }, { t: 185, n: 2 }, { t: 255, n: 3 }];
+// элитные «автоматы» приходят каждые 5 уровней
 const MAXLAB = 10;         // максимум стрелков одновременно
 
 // ---------- ввод ----------
@@ -234,20 +264,24 @@ function makeDecor() {
   return d;
 }
 
-function newGame(startWeapon) {
+function newGame(cls) {
+  const C = CLS[cls] || CLS.boy;
   G = {
-    t: 0, kills: 0, level: 1, xp: 0, need: needXp(1),
-    p: { x: MAP / 2, y: MAP / 2, hp: 100, max: 100, inv: 0, fx: 0, fy: 1, r: 12 },
+    t: 0, kills: 0, level: 1, xp: 0, need: needXp(1), cls: cls in CLS ? cls : 'boy',
+    bossT: BOSS_EVERY, nBoss: 0, slow: 0, shield: 0, items: [], itemT: 6, lip: [], md: [], lipX: 0, lipY: 0,
+    p: { x: MAP / 2, y: MAP / 2, hp: C.hp, max: C.hp, inv: 0, fx: 0, fy: 1, r: 12 },
     w: {}, ps: {}, wt: {},
     en: [], gems: [], pr: [], fx: [], ep: [],
-    spawn: 0.5, swarm: 20, eliteI: 0, nLab: 0, msg: null,
-    bossDone: false, qHits: 0, boost: 0, ft: [], shout: null, quiz: null, boss: null,
+    spawn: 0.5, swarm: 20, nextElite: 5, nLab: 0, msg: null,
+    qHits: 0, boost: 0, ft: [], shout: null, quiz: null, boss: null,
     orbA: 0, shake: 0, over: false, win: false,
     decor: makeDecor(),
     grid: Array.from({ length: GN * GN }, () => [])
   };
-  G.w[startWeapon] = 1; G.wt[startWeapon] = 0.4;
+  G.w[C.w] = 1; G.wt[C.w] = 0.4;
+  G.lipX = G.p.x; G.lipY = G.p.y;
   for (let i = 0; i < 5; i++) spawnEnemy();
+  for (const k of ['cig', 'cig', 'cig', 'shield', 'clock']) spawnItem(k);
   joyReset();
 }
 
@@ -266,7 +300,7 @@ function spawnPos() {
 }
 function addEnemy(type, x, y) {
   const T = ET[type];
-  const hp = (10 + G.t * 0.12) * T.hp;
+  const hp = (10 + (G.level - 1) * 3) * T.hp;
   G.en.push({ type, T, r: T.r, x, y, hp, mh: hp, kx: 0, ky: 0, ob: 0, fl: 0, sh: 1 + Math.random() * 2, dead: false });
 }
 function spawnEnemy(type) {
@@ -275,13 +309,13 @@ function spawnEnemy(type) {
 }
 // обычный спавн: курсовые, а со второй минуты ещё и лабораторные
 function pickType() {
-  const t = G.t;
-  if (t > 60 && G.nLab < MAXLAB && Math.random() < Math.min(0.2, 0.06 + (t - 60) / 1500)) return 'l';
+  const L = G.level;
+  if (L >= 4 && G.nLab < MAXLAB && Math.random() < Math.min(0.2, 0.06 + (L - 4) * 0.012)) return 'l';
   return 'c';
 }
 // рой рефератов: стая налетает с одной стороны
 function spawnSwarm() {
-  const n = Math.min(18, 6 + Math.floor(G.t / 25));
+  const n = Math.min(18, 5 + G.level);
   spawnPos();
   const bx = sp.x, by = sp.y;
   for (let i = 0; i < n && G.en.length < MAXE; i++) {
@@ -290,10 +324,40 @@ function spawnSwarm() {
 }
 function hurtPlayer(n) {
   const g = G, p = g.p;
+  if (g.shield > 0) { // щит-предмет гасит удар
+    g.shield--; p.inv = 0.6; g.shake = 3;
+    addFx({ k: 'ring', x: p.x, y: p.y, max: 40, t: 0, d: 0.3, col: '58,123,213' });
+    return false;
+  }
   p.hp -= n; p.inv = 0.7; g.shake = 6;
   try { if (navigator.vibrate) navigator.vibrate(25); } catch (_) {}
   if (p.hp <= 0) { p.hp = 0; finish(false); return true; }
   return false;
+}
+
+// ---------- предметы на карте ----------
+function spawnItem(k) {
+  const p = G.p;
+  for (let i = 0; i < 10; i++) {
+    const x = rnd(90, MAP - 90), y = rnd(90, MAP - 90);
+    if (Math.hypot(x - p.x, y - p.y) < 180 && i < 9) continue;
+    G.items.push({ k, x, y, ph: Math.random() * TAU });
+    return;
+  }
+}
+function itemCount(k) { let n = 0; for (const it of G.items) if (it.k === k) n++; return n; }
+function pickItem(it) {
+  const g = G, p = g.p;
+  if (it.k === 'cig') {
+    p.hp = Math.min(p.max, p.hp + 15);
+    g.ft.push({ text: '+15 HP', fill: '#2f9e44', line: 'rgba(255,255,255,0.95)', t: 0, d: 1.2 });
+  } else if (it.k === 'shield') {
+    g.shield = 3;
+    g.ft.push({ text: 'Щит ×3', fill: '#2b6bd0', line: 'rgba(255,255,255,0.95)', t: 0, d: 1.4 });
+  } else {
+    g.slow = 6;
+    g.ft.push({ text: 'Время замедлилось!', fill: '#7a4bd0', line: 'rgba(255,255,255,0.95)', t: 0, d: 1.6 });
+  }
 }
 
 // ---------- босс-препод: оскорбления и викторина ----------
@@ -420,7 +484,7 @@ function hitEnemy(e, dmg, kx, ky) {
 function killEnemy(e) {
   e.dead = true; G.kills++;
   if (e.T.boss) { // препод побеждён: куча баллов, оскорбления исчезают
-    G.bossDone = true;
+    G.boss = null; G.nBoss++; G.bossT = BOSS_EVERY; G.bosses = (G.bosses || 0) + 1;
     G.msg = { text: 'Препод побеждён!', t: 3, icon: '🎓' };
     for (let i = 0; i < 8; i++) G.gems.push({ x: e.x + rnd(-40, 40), y: e.y + rnd(-40, 40), v: 6, mg: false, dead: false });
     for (const b of G.ep) if (b.q) b.life = 0;
@@ -437,7 +501,10 @@ function killEnemy(e) {
 function update(dt) {
   const g = G, p = g.p, w = g.w, ps = g.ps;
   g.t += dt;
-  if (g.t >= SESSION) { finish(true); return; }
+  const L = g.level - 1;                       // сложность считается по уровню, а не по времени
+  g.slow = Math.max(0, g.slow - dt);
+  const sk = g.slow > 0 ? 0.4 : 1;             // «Часы»: враги и их снаряды медленнее
+  const dtE = dt * sk;
 
   // движение игрока
   let ix = joy.x, iy = joy.y;
@@ -446,7 +513,8 @@ function update(dt) {
     const l = Math.hypot(ix, iy); if (l > 1) { ix /= l; iy /= l; }
   }
   g.boost = Math.max(0, g.boost - dt);
-  const pspd = 150 * (1 + 0.1 * (ps.speed || 0)) * (g.boost > 0 ? 1.5 : 1);
+  const CL = CLS[g.cls];
+  const pspd = 150 * CL.spd * (1 + CL.spL * L) * (1 + 0.1 * (ps.speed || 0)) * (g.boost > 0 ? 1.5 : 1);
   p.x = clamp(p.x + ix * pspd * dt, p.r, MAP - p.r);
   p.y = clamp(p.y + iy * pspd * dt, p.r, MAP - p.r);
   const ml = Math.hypot(ix, iy);
@@ -454,33 +522,52 @@ function update(dt) {
   p.inv = Math.max(0, p.inv - dt);
   g.shake = Math.max(0, g.shake - 40 * dt);
 
-  const mulDmg = 1 + 0.12 * (ps.dmg || 0);
+  const mulDmg = (1 + 0.12 * (ps.dmg || 0)) * (1 + 0.015 * L);
   const mulCd = Math.max(0.4, 1 - 0.08 * (ps.cd || 0));
 
   // спавн врагов
   g.spawn -= dt;
   if (g.spawn <= 0) {
-    g.spawn += Math.max(0.25, 0.9 - g.t * 0.0022);
-    const batch = 1 + Math.floor(g.t / 90);
+    g.spawn += Math.max(0.25, 0.9 - L * 0.035);
+    const batch = 1 + Math.floor(L / 6);
     for (let i = 0; i < batch && g.en.length < MAXE; i++) spawnEnemy(pickType());
   }
   // рои рефератов
   g.swarm -= dt;
   if (g.swarm <= 0) {
-    g.swarm = Math.max(7, 16 - g.t / 30);
+    g.swarm = Math.max(7, 16 - L * 0.8);
     spawnSwarm();
   }
-  // элитные «автоматы отменены»
-  if (g.eliteI < ELITE.length && g.t >= ELITE[g.eliteI].t) {
-    const n = ELITE[g.eliteI++].n;
+  // элитные «автоматы отменены»: каждые 5 уровней, с каждым разом больше
+  if (g.level >= g.nextElite) {
+    const n = Math.min(6, Math.floor(g.nextElite / 5));
+    g.nextElite += 5;
     for (let i = 0; i < n; i++) spawnEnemy('a');
     g.msg = { text: 'Автомат отменён!', t: 2.5 };
   }
-  // первый босс: препод
-  if (!g.bossDone && !g.boss && g.t >= BOSS_T) {
-    spawnPos(); addEnemy('b', sp.x, sp.y);
-    g.boss = g.en[g.en.length - 1];
-    g.msg = { text: 'Препод принимает зачёт!', t: 3 };
+  // босс: таймер идёт, пока босса нет
+  if (!g.boss) {
+    g.bossT -= dt;
+    if (g.bossT <= 0) {
+      spawnPos(); addEnemy('b', sp.x, sp.y);
+      const b = g.en[g.en.length - 1];
+      b.hp = b.mh = b.hp * (1 + 0.5 * g.nBoss);
+      g.boss = b; g.qHits = 0; g.volley = 0;
+      g.msg = { text: 'Препод принимает зачёт!', t: 3 };
+    }
+  }
+  // предметы на карте
+  g.itemT -= dt;
+  if (g.itemT <= 0) {
+    g.itemT = 7;
+    let tot = 0; for (const k in PICK) tot += PICK[k].w;
+    let r = Math.random() * tot, kk = 'cig';
+    for (const k in PICK) { r -= PICK[k].w; if (r <= 0) { kk = k; break; } }
+    if (itemCount(kk) < PICK[kk].max) spawnItem(kk);
+  }
+  for (const it of g.items) {
+    const dx = p.x - it.x, dy = p.y - it.y;
+    if (dx * dx + dy * dy < 26 * 26) { pickItem(it); it.dead = true; }
   }
   if (g.msg) { g.msg.t -= dt; if (g.msg.t <= 0) g.msg = null; }
   if (g.shout) { g.shout.t += dt; if (g.shout.t >= g.shout.d || g.shout.e.dead) g.shout = null; }
@@ -490,8 +577,9 @@ function update(dt) {
 
   // враги: движение и контакт
   const far = Math.hypot(W, H) / SC * 0.5 + 420;
-  const esp = 52 + Math.min(g.t * 0.12, 30);
-  const dmgIn = 8 + Math.floor(g.t / 60) * 2;
+  const esp = (52 + Math.min(L * 0.9, 30)) * sk;
+  const dmgIn = 8 + Math.floor(L / 3) * 2;
+  const phone = g.w.phone ? ST.phone[g.w.phone - 1] : null, fa = Math.atan2(p.fy, p.fx);
   const kdec = Math.exp(-7 * dt);
   let labs = 0;
   for (const e of g.en) {
@@ -504,14 +592,14 @@ function update(dt) {
       if (d < T.keep - 60) { mx = -mx; my = -my; sm = T.spd * 0.7; }  // отходит, если подошёл близко
       else if (d < T.keep + 30) sm = 0;                                // держит дистанцию
       else if (d > 420) sm = 2.2;                                      // догоняет, если убежал
-      e.sh -= dt;
+      e.sh -= dtE;
       if (e.sh <= 0) { e.sh = 3.4; fireInsults(e); }
     }
     if (T.ranged) {
       labs++;
       if (d < T.keep - 40) { mx = -mx; my = -my; sm = T.spd * 0.8; } // отступает, если подошёл близко
       else if (d < T.keep + 20) sm = 0;                              // держит дистанцию
-      e.sh -= dt;
+      e.sh -= dtE;
       if (e.sh <= 0 && d < 420) {                                    // стреляет задачей
         e.sh = 2.6 + Math.random() * 0.8;
         g.ep.push({ x: e.x, y: e.y, vx: dx / d * 150, vy: dy / d * 150, life: 3.5, r: 6 });
@@ -521,6 +609,15 @@ function update(dt) {
     e.x = clamp(e.x + (mx * esp * sm + e.kx) * dt, 12, MAP - 12);
     e.y = clamp(e.y + (my * esp * sm + e.ky) * dt, 12, MAP - 12);
     e.ob -= dt; if (e.fl > 0) e.fl -= dt;
+    if (phone && d < e.r + SR) { // щит-телефон: враг в секторе упирается в него
+      let da = Math.atan2(-dy, -dx) - fa; da = Math.atan2(Math.sin(da), Math.cos(da));
+      if (Math.abs(da) < phone.arc) {
+        const nd = e.r + SR;
+        e.x = p.x - dx / d * nd; e.y = p.y - dy / d * nd;
+        if (e.ob <= 0) { hitEnemy(e, phone.dmg * mulDmg, -dx / d * 140, -dy / d * 140); e.ob = 0.4; }
+        continue;
+      }
+    }
     if (d < e.r + 14 && p.inv <= 0) {
       if (hurtPlayer(Math.round(dmgIn * T.dmg))) return;
     }
@@ -529,23 +626,33 @@ function update(dt) {
 
   // снаряды врагов (задачи от лабораторных)
   for (const b of g.ep) {
+    if (phone) { // щит-телефон гасит снаряды спереди
+      const dx = b.x - p.x, dy = b.y - p.y, dd = Math.hypot(dx, dy);
+      if (dd < SR + b.r + 4) {
+        let da = Math.atan2(dy, dx) - fa; da = Math.atan2(Math.sin(da), Math.cos(da));
+        if (Math.abs(da) < phone.arc) { b.life = 0; addFx({ k: 'pop', x: b.x, y: b.y, t: 0, d: 0.2, big: 1 }); continue; }
+      }
+    }
     if (b.q) { // оскорбление чуть-чуть скашивается в сторону игрока
       let da = Math.atan2(p.y - b.y, p.x - b.x) - Math.atan2(b.vy, b.vx);
       da = Math.atan2(Math.sin(da), Math.cos(da));
-      const step = clamp(da, -INS_TURN * dt, INS_TURN * dt);
+      const step = clamp(da, -INS_TURN * dtE, INS_TURN * dtE);
       if (b.turn + Math.abs(step) <= INS_TURN_MAX) {
         const c = Math.cos(step), s = Math.sin(step), vx = b.vx;
         b.vx = vx * c - b.vy * s; b.vy = vx * s + b.vy * c; b.turn += Math.abs(step);
       }
     }
-    b.x += b.vx * dt; b.y += b.vy * dt; b.life -= dt;
+    b.x += b.vx * dtE; b.y += b.vy * dtE; b.life -= dtE;
     if (b.x < -50 || b.y < -50 || b.x > MAP + 50 || b.y > MAP + 50) b.life = 0;
     if (b.life > 0 && p.inv <= 0) {
       const dx = p.x - b.x, dy = p.y - b.y, rr = b.r + p.r;
       if (dx * dx + dy * dy < rr * rr) {
         b.life = 0;
-        if (b.q) { openQuiz(b.ph); return; }   // оскорбление препода: пауза и пример
-        if (hurtPlayer(8 + Math.floor(g.t / 60))) return;
+        if (b.q) {                               // оскорбление препода: пауза и пример
+          if (g.shield > 0) { hurtPlayer(0); continue; } // щит гасит и оскорбление
+          openQuiz(b.ph); return;
+        }
+        if (hurtPlayer(8 + Math.floor(L / 3))) return;
       }
     }
   }
@@ -630,6 +737,62 @@ function update(dt) {
     }
   }
 
+  // --- помада (красный след) ---
+  if (w.lip) {
+    const s = ST.lip[w.lip - 1];
+    if (Math.hypot(p.x - g.lipX, p.y - g.lipY) > 14) {
+      g.lip.push({ x: p.x, y: p.y, t: s.life, m: s.life });
+      g.lipX = p.x; g.lipY = p.y;
+      if (g.lip.length > 70) g.lip.shift();
+    }
+    for (const pt of g.lip) {
+      pt.t -= dt;
+      const list = near(pt.x, pt.y, s.r + 26);
+      for (let k = 0; k < list.length; k++) {
+        const e = list[k];
+        if (e.dead || (e.lp || 0) > g.t) continue;
+        const dx = e.x - pt.x, dy = e.y - pt.y, hr = s.r + e.r * 0.6;
+        if (dx * dx + dy * dy < hr * hr) { hitEnemy(e, s.dmg * mulDmg, 0, 0); e.lp = g.t + 0.35; }
+      }
+    }
+    compact(g.lip, o => o.t > 0);
+  }
+
+  // --- медаль (летит в случайную сторону и взрывается) ---
+  if (w.medal) {
+    g.wt.medal -= dt;
+    if (g.wt.medal <= 0) {
+      const s = ST.medal[w.medal - 1];
+      if (near(p.x, p.y, 420).length) {
+        g.wt.medal = s.cd * mulCd;
+        for (let i = 0; i < s.n; i++) {
+          const a = Math.random() * TAU;
+          g.md.push({ x: p.x, y: p.y, vx: Math.cos(a) * 250, vy: Math.sin(a) * 250, fuse: rnd(0.5, 0.8), s, a: 0 });
+        }
+      } else g.wt.medal = 0.3;
+    }
+  }
+  for (const m of g.md) {
+    m.x += m.vx * dt; m.y += m.vy * dt; m.fuse -= dt; m.a += dt * 12;
+    let boom = m.fuse <= 0;
+    if (!boom) {
+      const list = near(m.x, m.y, 40);
+      for (let k = 0; k < list.length; k++) { const e = list[k]; if (!e.dead && Math.hypot(e.x - m.x, e.y - m.y) < e.r + 12) { boom = true; break; } }
+    }
+    if (boom) {
+      m.dead = true;
+      const s = m.s, list = near(m.x, m.y, s.rad + 26);
+      for (let k = 0; k < list.length; k++) {
+        const e = list[k]; if (e.dead) continue;
+        const dx = e.x - m.x, dy = e.y - m.y, d = Math.hypot(dx, dy) || 1;
+        if (d < s.rad + e.r) hitEnemy(e, s.dmg * mulDmg, dx / d * 240, dy / d * 240);
+      }
+      addFx({ k: 'ring', x: m.x, y: m.y, max: s.rad, t: 0, d: 0.35, col: '230,170,30' });
+      g.shake = Math.max(g.shake, 2);
+    }
+  }
+  compact(g.md, o => !o.dead);
+
   // снаряды
   for (const pr of g.pr) {
     if (pr.type === 'g') {
@@ -685,12 +848,14 @@ function update(dt) {
   compact(g.pr, o => o.life > 0);
   compact(g.ep, o => o.life > 0);
   compact(g.gems, o => !o.dead);
+  compact(g.items, o => !o.dead);
   compact(g.fx, o => o.t < o.d);
   compact(g.ft, o => o.t < o.d);
 
   // повышение уровня
   if (g.xp >= g.need) {
     g.xp -= g.need; g.level++; g.need = needXp(g.level);
+    { const C = CLS[g.cls]; p.max += C.hpL; p.hp = Math.min(p.max, p.hp + C.hpL); }
     openLevelUp();
   }
 }
@@ -701,6 +866,8 @@ function finish(win) {
   g.over = true; g.win = win;
   save.best = Math.max(save.best, Math.floor(g.t));
   save.kills = Math.max(save.kills, g.kills);
+  save.lvl = Math.max(save.lvl || 0, g.level);
+  save.bosses = Math.max(save.bosses || 0, g.bosses || 0);
   if (win) save.wins++;
   persist();
   joyReset();
@@ -761,6 +928,21 @@ function render() {
     if (gm.v > 1) drawSprK(SPR.gem, gm.x, gm.y, gm.v >= 10 ? 2 : 1.5);
     else drawSpr(SPR.gem, gm.x, gm.y);
   }
+  // предметы на карте
+  for (const it of g.items) {
+    if (it.x < x0 || it.x > x1 || it.y < y0 || it.y > y1) continue;
+    const bob = Math.sin(g.t * 3 + it.ph) * 3;
+    ctx.fillStyle = 'rgba(0,0,0,0.12)'; ctx.beginPath(); ctx.ellipse(it.x, it.y + 14, 10, 4, 0, 0, TAU); ctx.fill();
+    drawSpr(SPR['i_' + it.k], it.x, it.y + bob);
+  }
+  // красный след помады
+  if (g.lip.length && g.w.lip) {
+    const s = ST.lip[g.w.lip - 1];
+    for (const pt of g.lip) {
+      ctx.fillStyle = 'rgba(214,40,90,' + (0.55 * Math.min(1, pt.t / 0.5)) + ')';
+      ctx.beginPath(); ctx.arc(pt.x, pt.y, s.r, 0, TAU); ctx.fill();
+    }
+  }
   // враги
   for (const e of g.en) {
     if (e.x < x0 || e.x > x1 || e.y < y0 || e.y > y1) continue;
@@ -792,12 +974,30 @@ function render() {
   ctx.fillStyle = 'rgba(0,0,0,0.15)'; ctx.beginPath(); ctx.ellipse(p.x, p.y + 14, 13, 5, 0, 0, TAU); ctx.fill();
   const blink = p.inv > 0 && Math.floor(g.t * 20) % 2 === 0;
   if (blink) ctx.globalAlpha = 0.4;
-  drawSpr(SPR.player, p.x, p.y);
+  drawSpr(SPR[CLS[g.cls].spr], p.x, p.y);
   ctx.globalAlpha = 1;
   // полоска HP над игроком
   ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.fillRect(p.x - 16, p.y + 22, 32, 4);
   ctx.fillStyle = '#d9423a'; ctx.fillRect(p.x - 16, p.y + 22, 32 * (p.hp / p.max), 4);
 
+  // щит-предмет вокруг игрока
+  if (g.shield > 0) {
+    ctx.strokeStyle = 'rgba(58,123,213,0.75)'; ctx.fillStyle = 'rgba(58,123,213,0.12)'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(p.x, p.y, 24, 0, TAU); ctx.fill(); ctx.stroke();
+  }
+  // щит-телефон
+  if (g.w.phone) {
+    const ph = ST.phone[g.w.phone - 1], fa = Math.atan2(p.fy, p.fx);
+    ctx.strokeStyle = 'rgba(58,123,213,0.85)'; ctx.lineWidth = 7; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.arc(p.x, p.y, SR - 3, fa - ph.arc, fa + ph.arc); ctx.stroke();
+    drawSpr(SPR.phone, p.x + Math.cos(fa) * (SR + 2), p.y + Math.sin(fa) * (SR + 2));
+  }
+  // медали в полёте
+  for (const m of g.md) {
+    ctx.save(); ctx.translate(m.x, m.y); ctx.rotate(m.a);
+    ctx.drawImage(SPR.medal.c, -SPR.medal.w / 2, -SPR.medal.h / 2, SPR.medal.w, SPR.medal.h);
+    ctx.restore();
+  }
   // шпаргалки
   if (g.w.sheet) {
     const s = ST.sheet[g.w.sheet - 1];
@@ -821,9 +1021,10 @@ function render() {
     const k = f.t / f.d;
     if (f.k === 'ring') {
       const r = f.max * (1 - (1 - k) * (1 - k));
-      ctx.fillStyle = 'rgba(255,138,0,' + (0.15 * (1 - k)) + ')';
+      const col = f.col || '255,138,0';
+      ctx.fillStyle = 'rgba(' + col + ',' + (0.15 * (1 - k)) + ')';
       ctx.beginPath(); ctx.arc(f.x, f.y, r, 0, TAU); ctx.fill();
-      ctx.strokeStyle = 'rgba(255,138,0,' + (1 - k) + ')'; ctx.lineWidth = 6;
+      ctx.strokeStyle = 'rgba(' + col + ',' + (1 - k) + ')'; ctx.lineWidth = 6;
       ctx.beginPath(); ctx.arc(f.x, f.y, r, 0, TAU); ctx.stroke();
     } else {
       ctx.strokeStyle = 'rgba(90,90,90,' + (0.7 * (1 - k)) + ')'; ctx.lineWidth = 2;
@@ -865,6 +1066,7 @@ function render() {
   }
   ctx.restore();
 
+  if (g.slow > 0) { ctx.fillStyle = 'rgba(120,150,255,0.10)'; ctx.fillRect(0, 0, W, H); }
   drawHud();
   if (joy.active) drawJoy();
 }
@@ -890,11 +1092,16 @@ function drawHud() {
   // текст
   ctx.fillStyle = '#1d2433'; ctx.font = 'bold 13px sans-serif'; ctx.textAlign = 'left';
   ctx.fillText('Ур. ' + g.level + '  ·  убито ' + g.kills, 10, SAFE + 44);
-  // таймер
-  ctx.textAlign = 'center'; ctx.font = 'bold 24px sans-serif'; ctx.fillStyle = '#2b3a8f';
-  ctx.fillText(mmss(SESSION - g.t), W / 2, SAFE + 30);
+  // состояния: щит и замедление врагов
+  let sx2 = 10;
+  if (g.shield > 0) { ctx.fillText('🛡×' + g.shield, sx2, SAFE + 168); sx2 += 44; }
+  if (g.slow > 0) ctx.fillText('⏰ ' + g.slow.toFixed(1), sx2, SAFE + 168);
+  // таймер до босса
+  ctx.textAlign = 'center'; ctx.font = 'bold 24px sans-serif';
+  if (g.boss && !g.boss.dead) { ctx.fillStyle = '#7a1f2b'; ctx.fillText('ПРЕПОД!', W / 2, SAFE + 30); }
+  else { ctx.fillStyle = '#2b3a8f'; ctx.fillText(mmss(g.bossT), W / 2, SAFE + 30); }
   ctx.font = '11px sans-serif'; ctx.fillStyle = '#6a7596';
-  ctx.fillText('до конца сессии', W / 2, SAFE + 48);
+  ctx.fillText(g.boss && !g.boss.dead ? 'победи его' : 'до босса', W / 2, SAFE + 48);
   // миникарта
   const s = 78, mx = 10, my = SAFE + 58, k = s / MAP;
   ctx.fillStyle = 'rgba(251,248,238,0.85)'; ctx.fillRect(mx, my, s, s);
@@ -903,6 +1110,7 @@ function drawHud() {
   for (const e of g.en) if (!e.T.elite) ctx.fillRect(mx + e.x * k - 1, my + e.y * k - 1, 2, 2);
   ctx.fillStyle = '#7a0f0f';
   for (const e of g.en) if (e.T.elite) ctx.fillRect(mx + e.x * k - 2.5, my + e.y * k - 2.5, 5, 5);
+  for (const it of g.items) { ctx.fillStyle = it.k === 'cig' ? '#2f9e44' : it.k === 'shield' ? '#3a7bd5' : '#7a4bd0'; ctx.fillRect(mx + it.x * k - 1.5, my + it.y * k - 1.5, 3, 3); }
   ctx.fillStyle = '#2b3a8f'; ctx.beginPath(); ctx.arc(mx + p.x * k, my + p.y * k, 3.5, 0, TAU); ctx.fill();
   // полоска здоровья босса
   if (g.boss && !g.boss.dead) {
@@ -947,18 +1155,18 @@ function hardRefresh() {
 }
 function screenMenu() {
   return '<div class="panel"><h1>СЕССИЯ</h1>' +
-    '<p class="sub">Продержись до конца сессии. Отбивайся от курсовых, собирай зачёты, прокачивайся.</p>' +
+    '<p class="sub">Прокачивайся, отбивайся от курсовых и каждые 5 минут побеждай препода.</p>' +
     '<button class="btn" data-act="start">Начать</button>' +
     '<button class="btn alt" data-act="side">Круг управления: ' + (save.side === 'left' ? 'слева' : 'справа') + '</button>' +
-    '<p class="hint">Рекорд: ' + mmss(save.best) + ' · макс. убито: ' + save.kills + ' · сдано сессий: ' + save.wins + '</p>' +
+    '<p class="hint">Рекорд: уровень ' + (save.lvl || 0) + ' · боссов: ' + (save.bosses || 0) + ' · макс. убито: ' + save.kills + '</p>' +
     '<p class="hint">Тяни палец по ' + (save.side === 'left' ? 'левой' : 'правой') + ' половине экрана, появится круг. Оружие бьёт само.</p>' +
     (isStandalone() ? '' : '<p class="hint">Совет: «Поделиться» → «На экран Домой», и это будет как приложение.</p>') +
     '<button class="link" data-act="refresh">Обновить игру</button>' +
     '</div><div class="ver">Build ' + BUILD + '</div>';
 }
 function screenPick() {
-  let h = '<div class="panel"><h2>Выбери оружие</h2>';
-  for (const id in WDEF) h += card('pick', id, WDEF[id].ic, WDEF[id].n, '', WDEF[id].d[0]);
+  let h = '<div class="panel"><h2>Кто ты?</h2>';
+  for (const id in CLS) h += card('pick', id, CLS[id].ic, CLS[id].n, '', CLS[id].d);
   return h + '<button class="btn alt" data-act="menu">Назад</button></div>';
 }
 function screenLevel() {
@@ -977,10 +1185,10 @@ function screenPause() {
 function screenOver() {
   const g = G;
   return '<div class="panel"><h1>' + (g.win ? 'Сессия сдана! 🎓' : 'Улетел на пересдачу 😵') + '</h1>' +
-    '<p class="sub">Продержался ' + mmss(g.t) + ' · убито ' + g.kills + ' · уровень ' + g.level + '</p>' +
+    '<p class="sub">Уровень ' + g.level + ' · боссов побеждено ' + (g.bosses || 0) + ' · убито ' + g.kills + ' · ' + mmss(g.t) + '</p>' +
     '<button class="btn" data-act="start">Ещё раз</button>' +
     '<button class="btn alt" data-act="menu">В меню</button>' +
-    '<p class="hint">Рекорд: ' + mmss(save.best) + '</p></div>';
+    '<p class="hint">Рекорд: уровень ' + (save.lvl || 0) + ' · боссов ' + (save.bosses || 0) + '</p></div>';
 }
 
 function screenQuiz() {
