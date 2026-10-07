@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>Сессия</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#f6f3e7">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Сессия">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" href="icon-192.png">
+<style>
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;overflow:hidden;background:#f6f3e7;overscroll-behavior:none;touch-action:none;
+  -webkit-user-select:none;user-select:none;-webkit-touch-callout:none;
+  font-family:-apple-system,system-ui,"Segoe UI",Roboto,sans-serif;color:#1d2433}
+canvas{position:fixed;inset:0;display:block}
+#pause{position:fixed;top:calc(env(safe-area-inset-top,0px) + 18px);right:10px;width:42px;height:42px;border-radius:12px;
+  border:2px solid #2b3a8f;background:#fffdf5;font-size:16px;display:none;touch-action:manipulation}
+#ui{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(246,243,231,.92);
+  padding:20px;padding-top:calc(env(safe-area-inset-top,0px) + 20px);overflow:auto}
+#ui.show{display:flex}
+.panel{width:100%;max-width:380px;text-align:center;margin:auto}
+h1{font-size:36px;margin:0 0 6px;letter-spacing:1px;color:#2b3a8f}
+h2{font-size:26px;margin:0 0 14px}
+p.sub{margin:0 0 18px;color:#4a5575;font-size:15px;line-height:1.4}
+button{font-family:inherit}
+button.btn{display:block;width:100%;margin:10px 0;padding:14px;border-radius:14px;border:2px solid #2b3a8f;
+  background:#2b3a8f;color:#fff;font-size:18px;font-weight:700;touch-action:manipulation}
+button.btn.alt{background:#fffdf5;color:#2b3a8f}
+button.card{display:flex;gap:14px;align-items:center;text-align:left;width:100%;margin:10px 0;padding:12px 14px;
+  border-radius:14px;border:2px solid #2b3a8f;background:#fffdf5;font:inherit;color:inherit;touch-action:manipulation}
+.card .ic{font-size:34px}
+.card b{display:block;font-size:17px}
+.card small{display:block;color:#c0392b;font-weight:600;font-size:12px}
+.card em{font-style:normal;color:#4a5575;font-size:14px}
+.hint{font-size:13px;color:#6a7596;margin-top:14px;line-height:1.4}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<button id="pause" aria-label="Пауза">⏸</button>
+<div id="ui"></div>
+<script src="game.js"></script>
+</body>
+</html>
