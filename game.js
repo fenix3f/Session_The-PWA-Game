@@ -10,7 +10,7 @@ const MAXE = 350;          // максимум врагов одновремен
 const TAU = Math.PI * 2;
 const EF = '"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif';
 const KEY = 'sessiya_v1';
-const BUILD = '0.2';
+const BUILD = '0.2a';
 
 const cv = document.getElementById('c');
 const ctx = cv.getContext('2d');
@@ -760,7 +760,7 @@ function screenMenu() {
     '<p class="hint">Рекорд: ' + mmss(save.best) + ' · макс. убито: ' + save.kills + ' · сдано сессий: ' + save.wins + '</p>' +
     '<p class="hint">Тяни палец по ' + (save.side === 'left' ? 'левой' : 'правой') + ' половине экрана, появится круг. Оружие бьёт само.</p>' +
     (isStandalone() ? '' : '<p class="hint">Совет: «Поделиться» → «На экран Домой», и это будет как приложение.</p>') +
-    '<p class="hint">Build ' + BUILD + '</p></div>';
+    '</div><div class="ver">Build ' + BUILD + '</div>';
 }
 function screenPick() {
   let h = '<div class="panel"><h2>Выбери оружие</h2>';
