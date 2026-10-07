@@ -1,5 +1,5 @@
 // Меняй версию при каждом обновлении игры, чтобы телефон забрал свежие файлы
-const CACHE = 'sessiya-v3';
+const CACHE = 'sessiya-v4';
 const ASSETS = ['./', 'index.html', 'game.js', 'manifest.json', 'icon-180.png', 'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', e => {

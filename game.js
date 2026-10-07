@@ -10,7 +10,7 @@ const MAXE = 350;          // максимум врагов одновремен
 const TAU = Math.PI * 2;
 const EF = '"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif';
 const KEY = 'sessiya_v1';
-const BUILD = '0.2a';
+const BUILD = '0.2b';
 
 const cv = document.getElementById('c');
 const ctx = cv.getContext('2d');
@@ -796,7 +796,7 @@ function setState(s) {
   if (s === 'play') { ui.className = ''; ui.innerHTML = ''; return; }
   const view = { menu: screenMenu, pick: screenPick, levelup: screenLevel, pause: screenPause, over: screenOver }[s];
   ui.innerHTML = view();
-  ui.className = 'show';
+  ui.className = s === 'menu' ? 'show menu' : 'show';
 }
 
 function pauseGame() { if (state === 'play') setState('pause'); }
