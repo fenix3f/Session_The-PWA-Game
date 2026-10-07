@@ -10,7 +10,8 @@ const MAXE = 350;          // максимум врагов одновремен
 const TAU = Math.PI * 2;
 const EF = '"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif';
 const KEY = 'sessiya_v1';
-const BUILD = '0.2b';
+const BUILD = '0.3';
+const BOSS_T = 150;        // на какой секунде приходит первый босс (2:30)
 
 const cv = document.getElementById('c');
 const ctx = cv.getContext('2d');
@@ -89,11 +90,27 @@ function makeSprites() {
     boss: emojiSprite('📚', 48),
     gem: emojiSprite('✅', 16),
     sheet: emojiSprite('📜', 28),
-    google: emojiSprite('🔍', 26)
+    google: emojiSprite('🔍', 26),
+    teacher: emojiSprite('👩‍🏫', 72)
   };
+  loadImgSprite('boss.png', 76, 'teacher');
 }
 function drawSpr(s, x, y) { ctx.drawImage(s.c, x - s.w / 2, y - s.h / 2, s.w, s.h); }
 function drawSprK(s, x, y, k) { ctx.drawImage(s.c, x - s.w * k / 2, y - s.h * k / 2, s.w * k, s.h * k); }
+// картинка из файла -> спрайт (пока грузится, остаётся запасной эмодзи)
+function loadImgSprite(src, px, key) {
+  try {
+    if (typeof Image === 'undefined') return;
+    const im = new Image();
+    im.onload = () => {
+      const s = Math.round(px * 2), c = document.createElement('canvas');
+      c.width = c.height = s;
+      c.getContext('2d').drawImage(im, 0, 0, s, s);
+      SPR[key] = { c, w: px, h: px };
+    };
+    im.src = src;
+  } catch (e) {}
+}
 
 // ---------- описания оружия и пассивок ----------
 const WDEF = {
@@ -138,8 +155,18 @@ const ET = {
   c: { name: 'Курсовая',        spr: 'enemy', r: 13, hp: 1,    spd: 1,    dmg: 1,   xp: 1,  kb: 1 },
   r: { name: 'Реферат',         spr: 'ref',   r: 10, hp: 0.45, spd: 1.55, dmg: 0.6, xp: 1,  kb: 1.3 },
   l: { name: 'Лабораторная',    spr: 'lab',   r: 13, hp: 1.2,  spd: 0.7,  dmg: 1,   xp: 2,  kb: 1, ranged: true, keep: 240 },
-  a: { name: 'Автомат отменён', spr: 'boss',  r: 21, hp: 8,    spd: 0.8,  dmg: 2,   xp: 14, kb: 0.25, elite: true }
+  a: { name: 'Автомат отменён', spr: 'boss',  r: 21, hp: 8,    spd: 0.8,  dmg: 2,   xp: 14, kb: 0.25, elite: true },
+  b: { name: 'Препод',          spr: 'teacher', r: 34, hp: 25,  spd: 0.75, dmg: 1.5, xp: 0,  kb: 0.05, elite: true, boss: true, keep: 230 }
 };
+// оскорбления препода: фраза и значок, который летит по полю
+const INS = [
+  { t: 'Твой мозг бесконечно дифференцируем', s: 'd/dx' },
+  { t: 'Когда тебя спроецировали, получился ноль', s: '0' },
+  { t: 'Ты — константа в конце интеграла.', s: '+C' },
+  { t: 'Ваш уровень культуры впечатляет. К сожалению, со знаком минус', s: '−' },
+  { t: 'У тебя кругозор как у точки', s: '•' },
+  { t: 'Поделю тебя на ноль', s: '÷0' }
+];
 // когда приходят элитные враги: [секунда, сколько]
 const ELITE = [{ t: 95, n: 1 }, { t: 185, n: 2 }, { t: 255, n: 3 }];
 const MAXLAB = 10;         // максимум стрелков одновременно
@@ -211,6 +238,7 @@ function newGame(startWeapon) {
     w: {}, ps: {}, wt: {},
     en: [], gems: [], pr: [], fx: [], ep: [],
     spawn: 0.5, swarm: 20, eliteI: 0, nLab: 0, msg: null,
+    bossDone: false, qHits: 0, boost: 0, ft: [], shout: null, quiz: null, boss: null,
     orbA: 0, shake: 0, over: false, win: false,
     decor: makeDecor(),
     grid: Array.from({ length: GN * GN }, () => [])
@@ -264,6 +292,72 @@ function hurtPlayer(n) {
   if (p.hp <= 0) { p.hp = 0; finish(false); return true; }
   return false;
 }
+
+// ---------- босс-препод: оскорбления и викторина ----------
+function fireInsults(e) {
+  const g = G;
+  const k = Math.floor(Math.random() * INS.length);
+  g.shout = { text: INS[k].t, e, t: 0, d: 3 };
+  g.volley = (g.volley || 0) + 1;
+  const n = 9 + Math.min(4, Math.floor(g.volley / 3));
+  const base = Math.random() * TAU;
+  for (let i = 0; i < n && g.ep.length < 90; i++) {
+    const a = base + i * TAU / n;
+    g.ep.push({ q: true, ph: k, x: e.x, y: e.y, vx: Math.cos(a) * 115, vy: Math.sin(a) * 115, life: 6, r: 13 });
+  }
+}
+const GLITCH = '%&$#*!@?§¤~^';
+function glitchStr(n) {
+  let s = '';
+  for (let i = 0; i < n; i++) s += GLITCH[Math.floor(Math.random() * GLITCH.length)];
+  return s;
+}
+const ri = (a, b) => a + Math.floor(Math.random() * (b - a + 1));
+function makeQuiz(hard) {
+  let text, opts, ans;
+  if (!hard) {
+    // нормальный пример: сложение, вычитание или умножение
+    const k = ri(0, 2); let a, b, c;
+    if (k === 0) { a = ri(1, 19); b = ri(1, 19); c = a + b; text = a + ' + ' + b; }
+    else if (k === 1) { a = ri(5, 24); b = ri(1, a - 1); c = a - b; text = a + ' − ' + b; }
+    else { a = ri(2, 9); b = ri(2, 9); c = a * b; text = a + ' × ' + b; }
+    const pool = [];
+    for (let v = Math.max(0, c - 12); v <= c + 12; v++) if (v !== c) pool.push(v);
+    shuffle(pool);
+    opts = shuffle(pool.slice(0, 9).concat([c]));
+    ans = c;
+  } else {
+    // «битый» пример: решить нельзя, один из 10 вариантов правильный наугад
+    text = ri(1, 9) + '+' + glitchStr(ri(6, 9)) + ri(100, 9999);
+    const set = new Set();
+    while (set.size < 10) set.add(ri(1, 999));
+    opts = shuffle(Array.from(set));
+    ans = opts[ri(0, 9)];
+  }
+  return { text, opts, ans, hard };
+}
+function openQuiz(ph) {
+  const g = G;
+  g.qHits++;
+  g.quiz = Object.assign(makeQuiz(g.qHits > 1), { ph });
+  setState('quiz');
+}
+function answerQuiz(i) {
+  const g = G, q = g.quiz, p = g.p;
+  if (!q) return;
+  const ok = q.opts[i] === q.ans;
+  g.quiz = null;
+  if (ok) {
+    g.ft.push({ text: 'молодец! ↑', fill: '#e0a82e', line: 'rgba(60,40,0,0.9)', t: 0, d: 1.5 });
+    g.boost = 0.5;
+  } else {
+    g.ft.push({ text: 'Бездарность! ↓', fill: '#4b2f9e', line: 'rgba(255,255,255,0.95)', t: 0, d: 1.5 });
+    if (hurtPlayer(15)) return;
+  }
+  p.inv = Math.max(p.inv, 1.2); // после ответа несколько секунд неуязвимости
+  setState('play');
+}
+function esc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
 
 // ---------- сетка для быстрых запросов ----------
 const nb = [];
@@ -321,6 +415,14 @@ function hitEnemy(e, dmg, kx, ky) {
 }
 function killEnemy(e) {
   e.dead = true; G.kills++;
+  if (e.T.boss) { // препод побеждён: куча баллов, оскорбления исчезают
+    G.bossDone = true;
+    G.msg = { text: 'Препод побеждён!', t: 3, icon: '🎓' };
+    for (let i = 0; i < 8; i++) G.gems.push({ x: e.x + rnd(-40, 40), y: e.y + rnd(-40, 40), v: 6, mg: false, dead: false });
+    for (const b of G.ep) if (b.q) b.life = 0;
+    addFx({ k: 'pop', x: e.x, y: e.y, t: 0, d: 0.7, big: 5 });
+    return;
+  }
   const v = e.T.xp;
   if (G.gems.length < 500) G.gems.push({ x: e.x, y: e.y, v, mg: false, dead: false });
   else G.xp += v;
@@ -339,7 +441,8 @@ function update(dt) {
     ix = (kd.r ? 1 : 0) - (kd.l ? 1 : 0); iy = (kd.d ? 1 : 0) - (kd.u ? 1 : 0);
     const l = Math.hypot(ix, iy); if (l > 1) { ix /= l; iy /= l; }
   }
-  const pspd = 150 * (1 + 0.1 * (ps.speed || 0));
+  g.boost = Math.max(0, g.boost - dt);
+  const pspd = 150 * (1 + 0.1 * (ps.speed || 0)) * (g.boost > 0 ? 1.5 : 1);
   p.x = clamp(p.x + ix * pspd * dt, p.r, MAP - p.r);
   p.y = clamp(p.y + iy * pspd * dt, p.r, MAP - p.r);
   const ml = Math.hypot(ix, iy);
@@ -369,7 +472,14 @@ function update(dt) {
     for (let i = 0; i < n; i++) spawnEnemy('a');
     g.msg = { text: 'Автомат отменён!', t: 2.5 };
   }
+  // первый босс: препод
+  if (!g.bossDone && !g.boss && g.t >= BOSS_T) {
+    spawnPos(); addEnemy('b', sp.x, sp.y);
+    g.boss = g.en[g.en.length - 1];
+    g.msg = { text: 'Препод принимает зачёт!', t: 3 };
+  }
   if (g.msg) { g.msg.t -= dt; if (g.msg.t <= 0) g.msg = null; }
+  if (g.shout) { g.shout.t += dt; if (g.shout.t >= g.shout.d || g.shout.e.dead) g.shout = null; }
 
   buildGrid();
   separate();
@@ -384,8 +494,15 @@ function update(dt) {
     if (e.dead) continue;
     const T = e.T;
     const dx = p.x - e.x, dy = p.y - e.y, d = Math.hypot(dx, dy) || 1;
-    if (d > far) { spawnPos(); e.x = sp.x; e.y = sp.y; continue; }
+    if (d > far && !T.boss) { spawnPos(); e.x = sp.x; e.y = sp.y; continue; }
     let mx = dx / d, my = dy / d, sm = T.spd;
+    if (T.boss) {
+      if (d < T.keep - 60) { mx = -mx; my = -my; sm = T.spd * 0.7; }  // отходит, если подошёл близко
+      else if (d < T.keep + 30) sm = 0;                                // держит дистанцию
+      else if (d > 420) sm = 2.2;                                      // догоняет, если убежал
+      e.sh -= dt;
+      if (e.sh <= 0) { e.sh = 3.4; fireInsults(e); }
+    }
     if (T.ranged) {
       labs++;
       if (d < T.keep - 40) { mx = -mx; my = -my; sm = T.spd * 0.8; } // отступает, если подошёл близко
@@ -414,6 +531,7 @@ function update(dt) {
       const dx = p.x - b.x, dy = p.y - b.y, rr = b.r + p.r;
       if (dx * dx + dy * dy < rr * rr) {
         b.life = 0;
+        if (b.q) { openQuiz(b.ph); return; }   // оскорбление препода: пауза и пример
         if (hurtPlayer(8 + Math.floor(g.t / 60))) return;
       }
     }
@@ -547,6 +665,7 @@ function update(dt) {
 
   // эффекты
   for (const f of g.fx) f.t += dt;
+  for (const f of g.ft) f.t += dt;
 
   // уборка
   compact(g.en, e => !e.dead);
@@ -554,6 +673,7 @@ function update(dt) {
   compact(g.ep, o => o.life > 0);
   compact(g.gems, o => !o.dead);
   compact(g.fx, o => o.t < o.d);
+  compact(g.ft, o => o.t < o.d);
 
   // повышение уровня
   if (g.xp >= g.need) {
@@ -645,6 +765,13 @@ function render() {
   // задачи от лабораторных
   for (const b of g.ep) {
     if (b.x < x0 || b.x > x1 || b.y < y0 || b.y > y1) continue;
+    if (b.q) { // оскорбление препода: белый пузырь с символом
+      ctx.fillStyle = '#fff'; ctx.strokeStyle = '#5b3a9a'; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.arc(b.x, b.y, b.r + 2, 0, TAU); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#5b3a9a'; ctx.font = 'bold 13px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(INS[b.ph].s, b.x, b.y + 1);
+      continue;
+    }
     ctx.fillStyle = '#d9423a'; ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
     ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, TAU); ctx.fill(); ctx.stroke();
   }
@@ -690,6 +817,39 @@ function render() {
       ctx.beginPath(); ctx.arc(f.x, f.y, (4 + 12 * k) * (f.big || 1), 0, TAU); ctx.stroke();
     }
   }
+  // облачко с фразой препода
+  if (g.shout && !g.shout.e.dead) {
+    const e = g.shout.e, a = Math.min(1, (g.shout.d - g.shout.t) / 0.4, g.shout.t / 0.15 + 0.2);
+    ctx.font = 'bold 13px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    const words = g.shout.text.split(' '), lines = []; let cur = '';
+    for (const w of words) {
+      const t = cur ? cur + ' ' + w : w;
+      if (cur && ctx.measureText(t).width > 190) { lines.push(cur); cur = w; } else cur = t;
+    }
+    lines.push(cur);
+    let bw = 0; for (const l of lines) bw = Math.max(bw, ctx.measureText(l).width);
+    bw += 18;
+    const bh = lines.length * 16 + 12, by = e.y - e.r - 20 - bh;
+    const hx = W / SC / 2 - 6;                                  // облачко не вылезает за край экрана
+    const bx = clamp(e.x - bw / 2, cx - hx, Math.max(cx - hx, cx + hx - bw));
+    ctx.globalAlpha = Math.max(0, a);
+    ctx.fillStyle = '#fff'; ctx.strokeStyle = '#5b3a9a'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.roundRect ? ctx.roundRect(bx, by, bw, bh, 10) : ctx.rect(bx, by, bw, bh); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(e.x - 7, by + bh); ctx.lineTo(e.x, by + bh + 11); ctx.lineTo(e.x + 7, by + bh); ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#5b3a9a';
+    for (let i = 0; i < lines.length; i++) ctx.fillText(lines[i], bx + bw / 2, by + 6 + 8 + i * 16);
+    ctx.globalAlpha = 1;
+  }
+  // всплывающие надписи над игроком: снизу вверх
+  for (const f of g.ft) {
+    const k = f.t / f.d;
+    ctx.globalAlpha = k < 0.7 ? 1 : Math.max(0, 1 - (k - 0.7) / 0.3);
+    ctx.font = 'bold 22px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    const fy = p.y + 14 - 70 * k;
+    ctx.lineWidth = 5; ctx.lineJoin = 'round'; ctx.strokeStyle = f.line; ctx.strokeText(f.text, p.x, fy);
+    ctx.fillStyle = f.fill; ctx.fillText(f.text, p.x, fy);
+    ctx.globalAlpha = 1;
+  }
   ctx.restore();
 
   drawHud();
@@ -731,14 +891,24 @@ function drawHud() {
   ctx.fillStyle = '#7a0f0f';
   for (const e of g.en) if (e.T.elite) ctx.fillRect(mx + e.x * k - 2.5, my + e.y * k - 2.5, 5, 5);
   ctx.fillStyle = '#2b3a8f'; ctx.beginPath(); ctx.arc(mx + p.x * k, my + p.y * k, 3.5, 0, TAU); ctx.fill();
+  // полоска здоровья босса
+  if (g.boss && !g.boss.dead) {
+    const bw = Math.min(240, W - 190), bx = W / 2 - bw / 2, by = SAFE + 56;
+    ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.fillRect(bx, by, bw, 10);
+    ctx.fillStyle = '#7a1f2b'; ctx.fillRect(bx, by, bw * Math.max(0, g.boss.hp / g.boss.mh), 10);
+    ctx.strokeStyle = '#1b1210'; ctx.lineWidth = 2; ctx.strokeRect(bx, by, bw, 10);
+    ctx.fillStyle = '#7a1f2b'; ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('ПРЕПОД', W / 2, by + 20);
+  }
   // баннер появления элитных
   if (g.msg) {
     const a = Math.min(1, g.msg.t / 0.5);
     ctx.globalAlpha = a;
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.font = 'bold 22px sans-serif';
-    ctx.lineWidth = 5; ctx.strokeStyle = 'rgba(251,248,238,0.95)'; ctx.strokeText('⚠ ' + g.msg.text, W / 2, SAFE + 110);
-    ctx.fillStyle = '#c0392b'; ctx.fillText('⚠ ' + g.msg.text, W / 2, SAFE + 110);
+    const mt = (g.msg.icon || '⚠') + ' ' + g.msg.text;
+    ctx.lineWidth = 5; ctx.strokeStyle = 'rgba(251,248,238,0.95)'; ctx.strokeText(mt, W / 2, SAFE + 110);
+    ctx.fillStyle = g.msg.icon ? '#2f7d3a' : '#c0392b'; ctx.fillText(mt, W / 2, SAFE + 110);
     ctx.globalAlpha = 1;
   }
 }
@@ -789,12 +959,21 @@ function screenOver() {
     '<p class="hint">Рекорд: ' + mmss(save.best) + '</p></div>';
 }
 
+function screenQuiz() {
+  const q = G.quiz;
+  let h = '<div class="panel"><div class="who">👩‍🏫 Препод</div><p class="phrase">«' + esc(INS[q.ph].t) + '»</p>' +
+    '<div class="qprob' + (q.hard ? ' glitch' : '') + '">' + esc(q.text) + ' = ?</div>' +
+    '<p class="hint" style="margin:0 0 10px">Выбери правильный ответ</p><div class="qgrid">';
+  for (let i = 0; i < q.opts.length; i++) h += '<button class="qbtn" data-act="ans" data-id="' + i + '">' + q.opts[i] + '</button>';
+  return h + '</div></div>';
+}
+
 function setState(s) {
   state = s;
   if (s !== 'play') joyReset();
   pauseBtn.style.display = s === 'play' ? 'block' : 'none';
   if (s === 'play') { ui.className = ''; ui.innerHTML = ''; return; }
-  const view = { menu: screenMenu, pick: screenPick, levelup: screenLevel, pause: screenPause, over: screenOver }[s];
+  const view = { menu: screenMenu, pick: screenPick, levelup: screenLevel, quiz: screenQuiz, pause: screenPause, over: screenOver }[s];
   ui.innerHTML = view();
   ui.className = s === 'menu' ? 'show menu' : 'show';
 }
@@ -840,6 +1019,7 @@ ui.addEventListener('click', e => {
   if (act === 'start') setState('pick');
   else if (act === 'pick') { newGame(id); setState('play'); }
   else if (act === 'up') applyOption(id);
+  else if (act === 'ans') answerQuiz(+id);
   else if (act === 'resume') setState('play');
   else if (act === 'menu') { G = null; setState('menu'); }
   else if (act === 'side') { save.side = save.side === 'left' ? 'right' : 'left'; persist(); setState('menu'); }

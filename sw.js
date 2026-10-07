@@ -1,6 +1,6 @@
 // Меняй версию при каждом обновлении игры, чтобы телефон забрал свежие файлы
-const CACHE = 'sessiya-v4';
-const ASSETS = ['./', 'index.html', 'game.js', 'manifest.json', 'icon-180.png', 'icon-192.png', 'icon-512.png'];
+const CACHE = 'sessiya-v5';
+const ASSETS = ['./', 'index.html', 'game.js', 'manifest.json', 'icon-180.png', 'icon-192.png', 'icon-512.png', 'boss.png'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)).then(() => self.skipWaiting()));
