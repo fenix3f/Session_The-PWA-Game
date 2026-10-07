@@ -10,7 +10,7 @@ const MAXE = 350;          // максимум врагов одновремен
 const TAU = Math.PI * 2;
 const EF = '"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif';
 const KEY = 'sessiya_v1';
-const BUILD = '0.3a';
+const BUILD = '0.3a01';
 const BOSS_T = 150;        // на какой секунде приходит первый босс (2:30)
 const INS_SPD = 200;       // скорость оскорблений препода
 const INS_TURN = 0.6;      // как быстро они доворачивают к игроку (рад/с)
@@ -935,6 +935,16 @@ function isStandalone() {
   try { return (window.matchMedia && matchMedia('(display-mode: standalone)').matches) || navigator.standalone === true; }
   catch (e) { return false; }
 }
+// принудительное обновление: сносим кэш и service worker и грузим всё заново
+function hardRefresh() {
+  const done = () => location.reload();
+  try {
+    Promise.all([
+      window.caches ? caches.keys().then(ks => Promise.all(ks.map(k => caches.delete(k)))) : null,
+      navigator.serviceWorker ? navigator.serviceWorker.getRegistrations().then(rs => Promise.all(rs.map(r => r.unregister()))) : null
+    ]).then(done, done);
+  } catch (e) { done(); }
+}
 function screenMenu() {
   return '<div class="panel"><h1>СЕССИЯ</h1>' +
     '<p class="sub">Продержись до конца сессии. Отбивайся от курсовых, собирай зачёты, прокачивайся.</p>' +
@@ -943,6 +953,7 @@ function screenMenu() {
     '<p class="hint">Рекорд: ' + mmss(save.best) + ' · макс. убито: ' + save.kills + ' · сдано сессий: ' + save.wins + '</p>' +
     '<p class="hint">Тяни палец по ' + (save.side === 'left' ? 'левой' : 'правой') + ' половине экрана, появится круг. Оружие бьёт само.</p>' +
     (isStandalone() ? '' : '<p class="hint">Совет: «Поделиться» → «На экран Домой», и это будет как приложение.</p>') +
+    '<button class="link" data-act="refresh">Обновить игру</button>' +
     '</div><div class="ver">Build ' + BUILD + '</div>';
 }
 function screenPick() {
@@ -1035,6 +1046,7 @@ ui.addEventListener('click', e => {
   else if (act === 'ans') answerQuiz(+id);
   else if (act === 'resume') setState('play');
   else if (act === 'menu') { G = null; setState('menu'); }
+  else if (act === 'refresh') hardRefresh();
   else if (act === 'side') { save.side = save.side === 'left' ? 'right' : 'left'; persist(); setState('menu'); }
 });
 pauseBtn.addEventListener('click', pauseGame);
@@ -1058,7 +1070,14 @@ setState('menu');
 requestAnimationFrame(frame);
 
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
-  window.addEventListener('load', () => { navigator.serviceWorker.register('sw.js').catch(() => {}); });
+  window.addEventListener('load', () => {
+    const hadController = !!navigator.serviceWorker.controller;
+    // когда подъехал новый service worker, а ты в меню, перезагружаем страницу, чтобы сразу была свежая версия
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (hadController && (state === 'menu' || state === 'over')) location.reload();
+    });
+    navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).catch(() => {});
+  });
 }
 
 if (location.hash === '#debug') window.__dbg = { newGame, update, render, setState, applyOption, finish, get G() { return G; }, get state() { return state; } };
