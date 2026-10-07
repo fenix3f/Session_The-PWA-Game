@@ -10,8 +10,11 @@ const MAXE = 350;          // максимум врагов одновремен
 const TAU = Math.PI * 2;
 const EF = '"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif';
 const KEY = 'sessiya_v1';
-const BUILD = '0.3';
+const BUILD = '0.3a';
 const BOSS_T = 150;        // на какой секунде приходит первый босс (2:30)
+const INS_SPD = 200;       // скорость оскорблений препода
+const INS_TURN = 0.6;      // как быстро они доворачивают к игроку (рад/с)
+const INS_TURN_MAX = 1.0;  // и на сколько всего могут довернуть (рад, около 57°), чтобы только чуть скашивались
 
 const cv = document.getElementById('c');
 const ctx = cv.getContext('2d');
@@ -300,10 +303,11 @@ function fireInsults(e) {
   g.shout = { text: INS[k].t, e, t: 0, d: 3 };
   g.volley = (g.volley || 0) + 1;
   const n = 9 + Math.min(4, Math.floor(g.volley / 3));
-  const base = Math.random() * TAU;
+  // кольцо ориентировано так, чтобы один луч смотрел примерно на игрока, остальные расходятся в стороны
+  const base = Math.atan2(g.p.y - e.y, g.p.x - e.x) + rnd(-0.25, 0.25);
   for (let i = 0; i < n && g.ep.length < 90; i++) {
     const a = base + i * TAU / n;
-    g.ep.push({ q: true, ph: k, x: e.x, y: e.y, vx: Math.cos(a) * 115, vy: Math.sin(a) * 115, life: 6, r: 13 });
+    g.ep.push({ q: true, ph: k, x: e.x, y: e.y, vx: Math.cos(a) * INS_SPD, vy: Math.sin(a) * INS_SPD, life: 9, r: 13, turn: 0 });
   }
 }
 const GLITCH = '%&$#*!@?§¤~^';
@@ -525,6 +529,15 @@ function update(dt) {
 
   // снаряды врагов (задачи от лабораторных)
   for (const b of g.ep) {
+    if (b.q) { // оскорбление чуть-чуть скашивается в сторону игрока
+      let da = Math.atan2(p.y - b.y, p.x - b.x) - Math.atan2(b.vy, b.vx);
+      da = Math.atan2(Math.sin(da), Math.cos(da));
+      const step = clamp(da, -INS_TURN * dt, INS_TURN * dt);
+      if (b.turn + Math.abs(step) <= INS_TURN_MAX) {
+        const c = Math.cos(step), s = Math.sin(step), vx = b.vx;
+        b.vx = vx * c - b.vy * s; b.vy = vx * s + b.vy * c; b.turn += Math.abs(step);
+      }
+    }
     b.x += b.vx * dt; b.y += b.vy * dt; b.life -= dt;
     if (b.x < -50 || b.y < -50 || b.x > MAP + 50 || b.y > MAP + 50) b.life = 0;
     if (b.life > 0 && p.inv <= 0) {
@@ -975,7 +988,7 @@ function setState(s) {
   if (s === 'play') { ui.className = ''; ui.innerHTML = ''; return; }
   const view = { menu: screenMenu, pick: screenPick, levelup: screenLevel, quiz: screenQuiz, pause: screenPause, over: screenOver }[s];
   ui.innerHTML = view();
-  ui.className = s === 'menu' ? 'show menu' : 'show';
+  ui.className = 'show';
 }
 
 function pauseGame() { if (state === 'play') setState('pause'); }
