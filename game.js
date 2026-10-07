@@ -10,7 +10,7 @@ const MAXE = 350;          // максимум врагов одновремен
 const TAU = Math.PI * 2;
 const EF = '"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif';
 const KEY = 'sessiya_v1';
-const BUILD = '0.4';
+const BUILD = '0.4a';
 const INS_SPD = 200;       // скорость оскорблений препода
 const INS_TURN = 0.6;      // как быстро они доворачивают к игроку (рад/с)
 const INS_TURN_MAX = 1.0;  // и на сколько всего могут довернуть (рад, около 57°), чтобы только чуть скашивались
@@ -97,7 +97,7 @@ function makeSprites() {
     boy: emojiSprite('👦', 38),
     girl: emojiSprite('👧', 38),
     medal: emojiSprite('🏅', 24),
-    phone: emojiSprite('📱', 22),
+    phone: emojiSprite('🌯', 26),
     i_shield: emojiSprite('🛡️', 28),
     i_cig: emojiSprite('🚬', 26),
     i_clock: emojiSprite('⏰', 28)
@@ -129,7 +129,7 @@ const WDEF = {
   pen:    { n: 'Ручка',     ic: '🖊️', d: ['Пробивающий выстрел по ходу движения', 'Две ручки', 'Быстрее и сильнее', 'Три ручки', 'Четыре ручки, пробивают больше'] },
   lip:    { n: 'Помада',    ic: '💄', d: ['Оставляет за тобой красный след, он жжёт врагов', 'След шире', 'Сильнее и держится дольше', 'Ещё шире', 'Алая дорожка, максимум'] },
   medal:  { n: 'Медаль',    ic: '🏅', d: ['Отлетает в случайную сторону и взрывается', 'Взрыв сильнее', 'Две медали сразу', 'Шире и мощнее взрыв', 'Три медали сразу'] },
-  phone:  { n: 'Телефон',   ic: '📱', d: ['Щит в ту сторону, куда смотришь', 'Щит шире', 'Щит бьёт врагов сильнее', 'Ещё шире', 'Огромный щит, бьёт сильнее'] }
+  phone:  { n: 'Телефон',   ic: '📱', d: ['Щит-шаурма в ту сторону, куда смотришь. Не бьёт, только защищает', 'Щит шире', 'Ещё шире', 'Шире и шире', 'Огромный щит'] }
 };
 // классы: стартовое оружие и особенность; характеристики растут с уровнем
 const CLS = {
@@ -168,15 +168,15 @@ const ST = {
     { cd: 0.6, n: 4, dmg: 20, pierce: 5 }
   ],
   lip: [
-    { dmg: 6,  r: 16, life: 1.5 }, { dmg: 7,  r: 20, life: 1.7 }, { dmg: 10, r: 20, life: 2.0 },
-    { dmg: 11, r: 25, life: 2.2 }, { dmg: 15, r: 28, life: 2.6 }
+    { dmg: 4,  r: 13, life: 1.2 }, { dmg: 5,  r: 15, life: 1.4 }, { dmg: 7,  r: 15, life: 1.6 },
+    { dmg: 8,  r: 18, life: 1.8 }, { dmg: 10, r: 21, life: 2.0 }
   ],
   medal: [
     { cd: 2.6, n: 1, rad: 70,  dmg: 24 }, { cd: 2.4, n: 1, rad: 80,  dmg: 32 }, { cd: 2.2, n: 2, rad: 80,  dmg: 32 },
     { cd: 2.0, n: 2, rad: 95,  dmg: 42 }, { cd: 1.8, n: 3, rad: 105, dmg: 50 }
   ],
   phone: [
-    { arc: 0.8, dmg: 4 }, { arc: 0.95, dmg: 5 }, { arc: 0.95, dmg: 9 }, { arc: 1.15, dmg: 10 }, { arc: 1.4, dmg: 15 }
+    { arc: 0.8 }, { arc: 0.95 }, { arc: 1.1 }, { arc: 1.25 }, { arc: 1.4 }
   ]
 };
 const SR = 36; // радиус щита-телефона
@@ -268,7 +268,7 @@ function newGame(cls) {
   const C = CLS[cls] || CLS.boy;
   G = {
     t: 0, kills: 0, level: 1, xp: 0, need: needXp(1), cls: cls in CLS ? cls : 'boy',
-    bossT: BOSS_EVERY, nBoss: 0, slow: 0, shield: 0, items: [], itemT: 6, lip: [], md: [], lipX: 0, lipY: 0,
+    bossT: BOSS_EVERY, nBoss: 0, slow: 0, shield: 0, items: [], pickedAt: [], itemT: 6, lip: [], md: [], lipX: 0, lipY: 0,
     p: { x: MAP / 2, y: MAP / 2, hp: C.hp, max: C.hp, inv: 0, fx: 0, fy: 1, r: 12 },
     w: {}, ps: {}, wt: {},
     en: [], gems: [], pr: [], fx: [], ep: [],
@@ -337,17 +337,23 @@ function hurtPlayer(n) {
 
 // ---------- предметы на карте ----------
 function spawnItem(k) {
+  // из нескольких случайных точек берём ту, что дальше всего от других предметов и от недавних мест подбора
   const p = G.p;
-  for (let i = 0; i < 10; i++) {
+  let bx = MAP / 2, by = MAP / 2, bd = -1;
+  for (let i = 0; i < 12; i++) {
     const x = rnd(90, MAP - 90), y = rnd(90, MAP - 90);
-    if (Math.hypot(x - p.x, y - p.y) < 180 && i < 9) continue;
-    G.items.push({ k, x, y, ph: Math.random() * TAU });
-    return;
+    if (Math.hypot(x - p.x, y - p.y) < 180) continue;
+    let md = 1e9;
+    for (const it of G.items) md = Math.min(md, Math.hypot(x - it.x, y - it.y));
+    for (const o of G.pickedAt) md = Math.min(md, Math.hypot(x - o.x, y - o.y));
+    if (md > bd) { bd = md; bx = x; by = y; }
   }
+  G.items.push({ k, x: bx, y: by, ph: Math.random() * TAU });
 }
 function itemCount(k) { let n = 0; for (const it of G.items) if (it.k === k) n++; return n; }
 function pickItem(it) {
   const g = G, p = g.p;
+  g.pickedAt.push({ x: it.x, y: it.y }); if (g.pickedAt.length > 4) g.pickedAt.shift();
   if (it.k === 'cig') {
     p.hp = Math.min(p.max, p.hp + 15);
     g.ft.push({ text: '+15 HP', fill: '#2f9e44', line: 'rgba(255,255,255,0.95)', t: 0, d: 1.2 });
@@ -484,7 +490,7 @@ function hitEnemy(e, dmg, kx, ky) {
 function killEnemy(e) {
   e.dead = true; G.kills++;
   if (e.T.boss) { // препод побеждён: куча баллов, оскорбления исчезают
-    G.boss = null; G.nBoss++; G.bossT = BOSS_EVERY; G.bosses = (G.bosses || 0) + 1;
+    G.pendBoss = true; G.boss = null; G.nBoss++; G.bossT = BOSS_EVERY; G.bosses = (G.bosses || 0) + 1;
     G.msg = { text: 'Препод побеждён!', t: 3, icon: '🎓' };
     for (let i = 0; i < 8; i++) G.gems.push({ x: e.x + rnd(-40, 40), y: e.y + rnd(-40, 40), v: 6, mg: false, dead: false });
     for (const b of G.ep) if (b.q) b.life = 0;
@@ -500,6 +506,7 @@ function killEnemy(e) {
 // ---------- обновление ----------
 function update(dt) {
   const g = G, p = g.p, w = g.w, ps = g.ps;
+  if (g.pendBoss) { g.pendBoss = false; setState('bossend'); return; }
   g.t += dt;
   const L = g.level - 1;                       // сложность считается по уровню, а не по времени
   g.slow = Math.max(0, g.slow - dt);
@@ -614,7 +621,6 @@ function update(dt) {
       if (Math.abs(da) < phone.arc) {
         const nd = e.r + SR;
         e.x = p.x - dx / d * nd; e.y = p.y - dy / d * nd;
-        if (e.ob <= 0) { hitEnemy(e, phone.dmg * mulDmg, -dx / d * 140, -dy / d * 140); e.ob = 0.4; }
         continue;
       }
     }
@@ -752,7 +758,7 @@ function update(dt) {
         const e = list[k];
         if (e.dead || (e.lp || 0) > g.t) continue;
         const dx = e.x - pt.x, dy = e.y - pt.y, hr = s.r + e.r * 0.6;
-        if (dx * dx + dy * dy < hr * hr) { hitEnemy(e, s.dmg * mulDmg, 0, 0); e.lp = g.t + 0.35; }
+        if (dx * dx + dy * dy < hr * hr) { hitEnemy(e, s.dmg * mulDmg, 0, 0); e.lp = g.t + 0.5; }
       }
     }
     compact(g.lip, o => o.t > 0);
@@ -988,9 +994,13 @@ function render() {
   // щит-телефон
   if (g.w.phone) {
     const ph = ST.phone[g.w.phone - 1], fa = Math.atan2(p.fy, p.fx);
-    ctx.strokeStyle = 'rgba(58,123,213,0.85)'; ctx.lineWidth = 7; ctx.lineCap = 'round';
-    ctx.beginPath(); ctx.arc(p.x, p.y, SR - 3, fa - ph.arc, fa + ph.arc); ctx.stroke();
-    drawSpr(SPR.phone, p.x + Math.cos(fa) * (SR + 2), p.y + Math.sin(fa) * (SR + 2));
+    const cnt = Math.max(2, Math.ceil(ph.arc * 2 / 0.45) + 1);
+    for (let i = 0; i < cnt; i++) {
+      const a = fa - ph.arc + (cnt === 1 ? 0 : i * 2 * ph.arc / (cnt - 1));
+      ctx.save(); ctx.translate(p.x + Math.cos(a) * (SR - 4), p.y + Math.sin(a) * (SR - 4)); ctx.rotate(a + Math.PI / 2 + 0.6);
+      ctx.drawImage(SPR.phone.c, -SPR.phone.w / 2, -SPR.phone.h / 2, SPR.phone.w, SPR.phone.h);
+      ctx.restore();
+    }
   }
   // медали в полёте
   for (const m of g.md) {
@@ -1191,6 +1201,12 @@ function screenOver() {
     '<p class="hint">Рекорд: уровень ' + (save.lvl || 0) + ' · боссов ' + (save.bosses || 0) + '</p></div>';
 }
 
+function screenBossEnd() {
+  return '<div class="panel"><h1>Препод побеждён! 🎓</h1>' +
+    '<p class="sub">Зачёт у тебя в кармане. Заканчиваем сессию или идём дальше, в бесконечную кампанию? Следующий босс будет злее.</p>' +
+    '<button class="btn" data-act="goon">Продолжить</button>' +
+    '<button class="btn alt" data-act="endrun">Закончить</button></div>';
+}
 function screenQuiz() {
   const q = G.quiz;
   let h = '<div class="panel"><div class="who">👩‍🏫 Препод</div><p class="phrase">«' + esc(INS[q.ph].t) + '»</p>' +
@@ -1205,7 +1221,7 @@ function setState(s) {
   if (s !== 'play') joyReset();
   pauseBtn.style.display = s === 'play' ? 'block' : 'none';
   if (s === 'play') { ui.className = ''; ui.innerHTML = ''; return; }
-  const view = { menu: screenMenu, pick: screenPick, levelup: screenLevel, quiz: screenQuiz, pause: screenPause, over: screenOver }[s];
+  const view = { menu: screenMenu, pick: screenPick, levelup: screenLevel, quiz: screenQuiz, bossend: screenBossEnd, pause: screenPause, over: screenOver }[s];
   ui.innerHTML = view();
   ui.className = 'show';
 }
@@ -1217,6 +1233,7 @@ function openLevelUp() {
   const g = G, opts = [];
   const wc = Object.keys(g.w).length, pc = Object.keys(g.ps).length;
   for (const id in WDEF) {
+    if (id === 'lip' && g.cls !== 'girl') continue;   // помада только у девочки
     const l = g.w[id] || 0;
     if (l === 0 && wc < 4) opts.push({ k: 'w', id, l: 1 });
     else if (l > 0 && l < 5) opts.push({ k: 'w', id, l: l + 1 });
@@ -1252,7 +1269,8 @@ ui.addEventListener('click', e => {
   else if (act === 'pick') { newGame(id); setState('play'); }
   else if (act === 'up') applyOption(id);
   else if (act === 'ans') answerQuiz(+id);
-  else if (act === 'resume') setState('play');
+  else if (act === 'resume' || act === 'goon') setState('play');
+  else if (act === 'endrun') finish(true);
   else if (act === 'menu') { G = null; setState('menu'); }
   else if (act === 'refresh') hardRefresh();
   else if (act === 'side') { save.side = save.side === 'left' ? 'right' : 'left'; persist(); setState('menu'); }
