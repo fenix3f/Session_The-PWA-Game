@@ -16,7 +16,7 @@ const MAXE = 350;          // максимум врагов одновремен
 const TAU = Math.PI * 2;
 const EF = '"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif';
 const KEY = 'sessiya_v1';
-const BUILD = '0.5b';
+const BUILD = '0.5c';
 const INS_SPD = 200;       // скорость оскорблений препода
 const INS_TURN = 0.6;      // как быстро они доворачивают к игроку (рад/с)
 const INS_TURN_MAX = 1.0;  // и на сколько всего могут довернуть (рад, около 57°), чтобы только чуть скашивались
@@ -455,21 +455,29 @@ function prismColor(t) { return 'hsl(' + Math.floor((t * 160) % 360) + ',90%,60%
 function mbossUpdate(e, dt, dtE, L) {
   const g = G, mb = g.mb;
   if (mb.ph === 1) {
-    // хлеб лежит вокруг босса; когда босс задевает буханку, он её съедает и раздувается
-    let any = false;
+    // хлеб от заводов медленно едет к боссу; съеденный раздувает его
     for (const b of g.bread) {
-      const dx = e.x - b.x, dy = e.y - b.y;
-      const rr = e.r + 26;
-      if (dx * dx + dy * dy < rr * rr) { b.dead = true; any = true; e.r = Math.min(mb.base * 2.1, e.r + 0.8); mb.fed++; }
+      const dx = e.x - b.x, dy = e.y - b.y, d = hyp(dx, dy) || 1;
+      if (d < e.r + 4) { b.dead = true; e.r = Math.min(mb.base * 2.1, e.r + 0.8); mb.fed++; }
+      else { b.x += dx / d * 42 * dtE; b.y += dy / d * 42 * dtE; }
     }
-    if (any) compact(g.bread, o => !o.dead);
+    compact(g.bread, o => !o.dead);
     if (g.facLeft <= 0) {
       mb.ph = 2; mb.t = 0; mb.stopHp = e.hp - 0.2 * e.mh;
-      g.bread.length = 0;
+      mb.inhale = true;   // весь оставшийся хлеб засасывается в босса
       bossShout(e, 'ГДЕ МОЙ ХЛЕЕЕБ?!?!', 3);
     }
   } else if (mb.ph === 2 || mb.ph === 4) {
     mb.t += dt;
+    if (mb.inhale) {
+      for (const b of g.bread) {
+        const dx = e.x - b.x, dy = e.y - b.y, d = hyp(dx, dy) || 1;
+        if (d < e.r + 8) { b.dead = true; mb.fed++; mb.dmgK = Math.min(3, mb.dmgK + 0.01); e.hp = Math.min(e.mh, e.hp + 0.004 * e.mh); e.r = Math.min(mb.base * 2.1, e.r + 0.8); }
+        else { const v = 420 * dtE; b.x += dx / d * v; b.y += dy / d * v; }
+      }
+      compact(g.bread, o => !o.dead);
+      if (!g.bread.length) mb.inhale = false;
+    }
     if (mb.ph === 2) mb.shA = Math.max(0, mb.shA - dt / 1.5);       // щит сползает
     e.r += (mb.base - e.r) * Math.min(1, dt * 1.3);                   // размер возвращается
     mb.hole = Math.min(1, mb.hole + dt / 1.5);
@@ -783,10 +791,9 @@ function update(dt) {
       if (e.sp2 <= 0 && g.mb && g.mb.ph === 1) { e.sp2 = 6; for (let k = 0; k < 2 && g.en.length < MAXE; k++) addEnemy(pickType(), clamp(e.x + rnd(-30, 30), 20, MAP - 20), clamp(e.y + rnd(-30, 30), 20, MAP - 20)); }
       if (e.sh <= 0) {
         e.sh = BAKE_EVERY;
-        if (g.mb && g.mb.ph === 1 && g.boss && !g.boss.dead) {   // хлеб появляется вокруг босса
-          const ba = Math.random() * TAU, br = g.boss.r + 20 + Math.random() * 90;
+        if (g.mb && g.mb.ph === 1 && g.boss && !g.boss.dead) {
           if (g.bread.length >= BREAD_MAX) g.bread.shift();
-          g.bread.push({ x: clamp(g.boss.x + Math.cos(ba) * br, 10, MAP - 10), y: clamp(g.boss.y + Math.sin(ba) * br, 10, MAP - 10), dead: false });
+          g.bread.push({ x: e.x, y: e.y, dead: false });
           g.mb.baked++;
         }
       }
@@ -795,12 +802,12 @@ function update(dt) {
     let mx = dx / d, my = dy / d, sm = T.spd, bv = -1;   // bv >= 0: босс идёт с заданной скоростью (доля от скорости игрока)
     if (e.cast > 0) e.cast -= dt;
     if (T.mboss && g.mb) {
-      const mph = g.mb.ph;
-      if (mph === 1) bv = pBase * 0.75;
-      else if (mph === 3) bv = pBase * (e.cast > 0 ? 0.2 : 1.1);   // фигуры: как у препода, наседает, но на касте почти встаёт
-      else bv = pBase * 0.8;                                       // воронка
+      const mph = g.mb.ph, fat = clamp((e.r - g.mb.base) / (g.mb.base * 1.1), 0, 1);
+      if (mph === 1) bv = pBase * (0.75 - 0.15 * fat);   // чем толще, тем медленнее: 0.75 -> 0.6
+      else if (mph === 3) bv = pBase * (e.cast > 0 ? 0.2 : 0.75);   // фигуры: как у препода, наседает, но на касте почти встаёт
+      else bv = pBase * (0.8 - 0.15 * fat);                        // воронка: 0.8 -> 0.65 (пока толстый)
     } else if (T.boss) {
-      bv = pBase * (e.cast > 0 ? 0.2 : 1.1);
+      bv = pBase * (e.cast > 0 ? 0.2 : 0.75);
       e.sh -= dtE;
       if (e.sh <= 0) { e.sh = 2.8; e.cast = rnd(1, 2); fireInsults(e); }
     }
