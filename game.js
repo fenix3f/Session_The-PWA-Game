@@ -10,7 +10,7 @@ const MAXE = 350;          // максимум врагов одновремен
 const TAU = Math.PI * 2;
 const EF = '"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif';
 const KEY = 'sessiya_v1';
-const BUILD = '0.4b';
+const BUILD = '0.5';
 const INS_SPD = 200;       // скорость оскорблений препода
 const INS_TURN = 0.6;      // как быстро они доворачивают к игроку (рад/с)
 const INS_TURN_MAX = 1.0;  // и на сколько всего могут довернуть (рад, около 57°), чтобы только чуть скашивались
@@ -83,6 +83,25 @@ function emojiSprite(ch, px) {
   g.fillText(ch, s / 2, s / 2 + s * 0.04);
   return { c, w: px, h: px };
 }
+// геометрические фигуры «цвета призмы» для атак Мастера проектов
+function shapeSprite(kind) {
+  const c = document.createElement('canvas'); c.width = c.height = 64;
+  const g = c.getContext('2d');
+  try {
+    const gr = g.createLinearGradient(0, 0, 64, 64);
+    ['#ff4d6d', '#ffb703', '#70e000', '#00b4d8', '#7b2cbf'].forEach((col, i) => gr.addColorStop(i / 4, col));
+    g.fillStyle = gr;
+    if (kind === 'tri') {
+      g.beginPath(); g.moveTo(58, 32); g.lineTo(8, 6); g.lineTo(8, 58); g.closePath(); g.fill();
+      g.lineWidth = 4; g.strokeStyle = '#24113f'; g.stroke();
+    } else {
+      g.beginPath(); g.arc(28, 32, 24, 0, Math.PI * 2); g.fill();
+      g.globalCompositeOperation = 'destination-out';
+      g.beginPath(); g.arc(42, 32, 20, 0, Math.PI * 2); g.fill();
+    }
+  } catch (e) {}
+  return { c, w: 36, h: 36 };
+}
 let SPR = null;
 function makeSprites() {
   SPR = {
@@ -101,9 +120,19 @@ function makeSprites() {
     phone: emojiSprite('📱', 22),
     i_shield: emojiSprite('🌯', 28),
     i_cig: emojiSprite('🚬', 26),
-    i_clock: emojiSprite('⏰', 28)
+    i_clock: emojiSprite('⏰', 28),
+    mk: emojiSprite('😊', 76),
+    ma: emojiSprite('😠', 76),
+    bakery: emojiSprite('🏭', 96),
+    bread: emojiSprite('🍞', 22),
+    tri: shapeSprite('tri'),
+    cres: shapeSprite('cres')
   };
   loadImgSprite('boss.png', 76, 'teacher');
+  loadImgSprite('boss_kind.png', 76, 'mk');
+  loadImgSprite('boss_angry.png', 76, 'ma');
+  loadImgSprite('bakery.png', 96, 'bakery');
+  loadImgSprite('bread.png', 22, 'bread');
 }
 function drawSpr(s, x, y) { ctx.drawImage(s.c, x - s.w / 2, y - s.h / 2, s.w, s.h); }
 function drawSprK(s, x, y, k) { ctx.drawImage(s.c, x - s.w * k / 2, y - s.h * k / 2, s.w * k, s.h * k); }
@@ -191,7 +220,9 @@ const ET = {
   r: { name: 'Реферат',         spr: 'ref',   r: 10, hp: 0.45, spd: 1.55, dmg: 0.6, xp: 1,  kb: 1.3 },
   l: { name: 'Лабораторная',    spr: 'lab',   r: 13, hp: 1.2,  spd: 0.7,  dmg: 1,   xp: 2,  kb: 1, ranged: true, keep: 240 },
   a: { name: 'Автомат отменён', spr: 'boss',  r: 21, hp: 8,    spd: 0.8,  dmg: 2,   xp: 14, kb: 0.25, elite: true },
-  b: { name: 'Препод',          spr: 'teacher', r: 34, hp: 25,  spd: 0.75, dmg: 1.5, xp: 0,  kb: 0.05, elite: true, boss: true, keep: 230 }
+  b: { name: 'Препод',          short: 'ПРЕПОД', spr: 'teacher', r: 34, hp: 25,  spd: 0.75, dmg: 1.5, xp: 0,  kb: 0.05, elite: true, boss: true, keep: 230 },
+  m: { name: 'Мастер проектов', short: 'МАСТЕР', spr: 'mk',      r: 34, hp: 30,  spd: 0.85, dmg: 1.5, xp: 0,  kb: 0.05, elite: true, boss: true, mboss: true },
+  f: { name: 'Хлебозавод',      spr: 'bakery',  r: 38, hp: 14,  spd: 0,    dmg: 0,   xp: 6,  kb: 0,    elite: true, fac: true }
 };
 // оскорбления препода: фраза и значок, который летит по полю
 const INS = [
@@ -269,7 +300,7 @@ function newGame(cls) {
   const C = CLS[cls] || CLS.boy;
   G = {
     t: 0, kills: 0, level: 1, xp: 0, need: needXp(1), cls: cls in CLS ? cls : 'boy',
-    bossT: BOSS_EVERY, nBoss: 0, slow: 0, shield: 0, items: [], pickedAt: [], itemT: 6, lip: [], md: [], lipX: 0, lipY: 0,
+    bossT: BOSS_EVERY, nBoss: 0, hz: [], bread: [], mb: null, facLeft: 0, pslow: 0, slow: 0, shield: 0, items: [], pickedAt: [], itemT: 6, lip: [], md: [], lipX: 0, lipY: 0,
     p: { x: MAP / 2, y: MAP / 2, hp: C.hp, max: C.hp, inv: 0, fx: 0, fy: 1, r: 12 },
     w: {}, ps: {}, wt: {},
     en: [], gems: [], pr: [], fx: [], ep: [],
@@ -364,6 +395,108 @@ function pickItem(it) {
   } else {
     g.slow = 6;
     g.ft.push({ text: 'Время замедлилось!', fill: '#7a4bd0', line: 'rgba(255,255,255,0.95)', t: 0, d: 1.6 });
+  }
+}
+
+// ---------- боссы: появление ----------
+function spawnBoss(kind) {
+  const g = G, p = g.p;
+  spawnPos(); addEnemy(kind, sp.x, sp.y);
+  const b = g.en[g.en.length - 1];
+  b.hp = b.mh = b.hp * (1 + 0.5 * g.nBoss);
+  g.boss = b; g.qHits = 0; g.volley = 0; g.bossT = BOSS_EVERY;
+  if (kind === 'm') {
+    g.mb = { ph: 1, shA: 1, base: b.r, hole: 0, dmgK: 1, eaten: 0, fed: 0, stopHp: 0, atkT: 3, atkI: 0, pend: null, suck2: false, t: 0 };
+    // по заводу у каждого края карты, на дальней от игрока половине стороны
+    const M = 160, fy = p.y < MAP / 2 ? MAP * 0.78 : MAP * 0.22, fx = p.x < MAP / 2 ? MAP * 0.78 : MAP * 0.22;
+    for (const q of [[M, fy], [MAP - M, fy], [fx, M], [fx, MAP - M]]) { addEnemy('f', q[0], q[1]); g.facLeft++; }
+    g.msg = { text: 'Мастер проектов! Разрушь заводы', t: 3.5 };
+  } else g.msg = { text: 'Препод принимает зачёт!', t: 3 };
+}
+function clearBossStuff() {
+  const g = G;
+  g.hz.length = 0; g.bread.length = 0; g.mb = null; g.facLeft = 0;
+  for (const o of g.en) if (o.T.fac) o.dead = true;
+  for (const b of g.ep) if (b.q || b.c) b.life = 0;
+}
+function bossShout(e, text, d) { G.shout = { text, e, t: 0, d: d || 3 }; }
+
+// ---------- босс «Мастер проектов» ----------
+const HOLE_R = 150;          // радиус чёрной воронки
+const BAKE_EVERY = 4.5;      // как часто завод печёт хлеб
+const ATK_TXT = ['Условно офисы', 'Условно коммутатор', 'Условно проводка'];
+function prismColor(t) { return 'hsl(' + Math.floor((t * 160) % 360) + ',90%,60%)'; }
+function mbossUpdate(e, dt, dtE, L) {
+  const g = G, mb = g.mb;
+  if (mb.ph === 1) {
+    // хлеб медленно едет к боссу, съеденный хлеб его раздувает
+    for (const b of g.bread) {
+      const dx = e.x - b.x, dy = e.y - b.y, d = Math.hypot(dx, dy) || 1;
+      if (d < e.r + 4) { b.dead = true; e.r = Math.min(mb.base * 2.1, e.r + 1.2); mb.fed++; }
+      else { b.x += dx / d * 42 * dtE; b.y += dy / d * 42 * dtE; }
+    }
+    compact(g.bread, o => !o.dead);
+    if (g.facLeft <= 0) {
+      mb.ph = 2; mb.t = 0; mb.stopHp = e.hp - 0.2 * e.mh;
+      g.bread.length = 0;
+      bossShout(e, 'ГДЕ МОЙ ХЛЕЕЕБ?!?!', 3);
+    }
+  } else if (mb.ph === 2 || mb.ph === 4) {
+    mb.t += dt;
+    if (mb.ph === 2) mb.shA = Math.max(0, mb.shA - dt / 1.5);       // щит сползает
+    e.r += (mb.base - e.r) * Math.min(1, dt * 1.3);                   // размер возвращается
+    mb.hole = Math.min(1, mb.hole + dt / 1.5);
+    if (e.hp <= mb.stopHp) {
+      mb.ph = 3; mb.atkT = 3.5; mb.pend = null;
+      bossShout(e, 'Я ВЫЗОВУ ТВОИХ РОДИТЕЛЕЙ!', 3);
+    }
+    // воронка затягивает врагов: каждый даёт боссу +1 HP и немного урона
+    if (mb.hole > 0.4) {
+      for (const o of g.en) {
+        if (o.dead || o === e || o.T.boss || o.T.fac) continue;
+        const dx = e.x - o.x, dy = e.y - o.y, d = Math.hypot(dx, dy) || 1;
+        if (d > HOLE_R) continue;
+        if (d < e.r + 10) {
+          o.dead = true; mb.eaten++;
+          mb.dmgK = Math.min(3, mb.dmgK + 0.015);
+          e.hp = Math.min(e.mh, e.hp + 1);
+          addFx({ k: 'pop', x: o.x, y: o.y, t: 0, d: 0.25, big: 1 });
+        } else {
+          const pull = 150 * dtE * (1 + (HOLE_R - d) / HOLE_R);
+          o.x += dx / d * pull; o.y += dy / d * pull;
+        }
+      }
+    }
+  } else { // фаза 3: фигуры
+    mb.hole = Math.max(0, mb.hole - dt);
+    if (e.hp < 0.5 * e.mh && !mb.suck2 && !mb.pend) {
+      mb.suck2 = true; mb.ph = 4; mb.t = 0; mb.stopHp = e.hp - 0.2 * e.mh;
+      bossShout(e, 'ГДЕ МОЙ ХЛЕЕЕБ?!?!', 3);
+    } else if (mb.pend) {
+      mb.pend.t -= dtE;
+      if (mb.pend.t <= 0) { launchAttack(e, mb.pend.i); mb.pend = null; }
+    } else {
+      mb.atkT -= dtE;
+      if (mb.atkT <= 0) {
+        const i = mb.atkI++ % 3;
+        mb.pend = { i, t: 0.9 }; mb.atkT = 4.5;
+        bossShout(e, ATK_TXT[i], 2.2);
+      }
+    }
+  }
+}
+function launchAttack(e, i) {
+  const g = G, p = g.p;
+  const a = Math.atan2(p.y - e.y, p.x - e.x);
+  if (i === 0) { // треугольник с кружащимися кругами, потом круги взрываются мелкими
+    g.hz.push({ k: 'tri', x: e.x, y: e.y, a, vx: Math.cos(a) * 190, vy: Math.sin(a) * 190, t: 0, life: 1.5, ob: Math.random() * TAU });
+  } else if (i === 1) { // лазерный квадрат растёт от босса; в одной стороне есть брешь
+    const dx = p.x - e.x, dy = p.y - e.y;
+    const side = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 0 : 2) : (dy > 0 ? 1 : 3);
+    const coord = side % 2 === 0 ? dy : dx;
+    g.hz.push({ k: 'sq', x: e.x, y: e.y, h: e.r + 8, hmax: 420, side, gc: coord + (Math.random() < 0.5 ? -1 : 1) * 90, t: 0 });
+  } else { // два полумесяца и лазер между ними, расходятся
+    g.hz.push({ k: 'cres', x0: e.x, y0: e.y, a, t: 0, life: 4.2, tick: 0, A: { x: e.x, y: e.y }, B: { x: e.x, y: e.y } });
   }
 }
 
@@ -483,6 +616,7 @@ function separate() {
 function addFx(o) { if (G.fx.length < 80) G.fx.push(o); }
 function hitEnemy(e, dmg, kx, ky) {
   if (e.dead) return;
+  if (e.T.mboss && G.mb && G.mb.ph === 1) { e.hp = Math.max(1, e.hp - 1); e.fl = 0.08; return; } // пока заводы живы: максимум 1 HP
   e.hp -= dmg; e.fl = 0.08;
   const kb = e.T.kb;
   e.kx = clamp(e.kx + kx * kb, -320, 320); e.ky = clamp(e.ky + ky * kb, -320, 320);
@@ -490,10 +624,12 @@ function hitEnemy(e, dmg, kx, ky) {
 }
 function killEnemy(e) {
   e.dead = true; G.kills++;
+  if (e.T.fac) G.facLeft--;
   if (e.T.boss) { // препод побеждён: куча баллов, оскорбления исчезают
     G.pendBoss = true; G.boss = null; G.nBoss++; G.bossT = BOSS_EVERY; G.bosses = (G.bosses || 0) + 1;
-    G.msg = { text: 'Препод побеждён!', t: 3, icon: '🎓' };
-    for (let i = 0; i < 8; i++) G.gems.push({ x: e.x + rnd(-40, 40), y: e.y + rnd(-40, 40), v: 6, mg: false, dead: false });
+    G.msg = { text: e.T.mboss ? 'Мастер проектов побеждён!' : 'Препод побеждён!', t: 3, icon: '🎓' };
+    if (e.T.mboss) clearBossStuff();
+    for (let i = 0; i < (e.T.mboss ? 12 : 8); i++) G.gems.push({ x: e.x + rnd(-40, 40), y: e.y + rnd(-40, 40), v: 6, mg: false, dead: false });
     for (const b of G.ep) if (b.q) b.life = 0;
     addFx({ k: 'pop', x: e.x, y: e.y, t: 0, d: 0.7, big: 5 });
     return;
@@ -511,6 +647,7 @@ function update(dt) {
   g.t += dt;
   const L = g.level - 1;                       // сложность считается по уровню, а не по времени
   g.slow = Math.max(0, g.slow - dt);
+  g.pslow = Math.max(0, g.pslow - dt);
   const sk = g.slow > 0 ? 0.4 : 1;             // «Часы»: враги и их снаряды медленнее
   const dtE = dt * sk;
 
@@ -522,7 +659,7 @@ function update(dt) {
   }
   g.boost = Math.max(0, g.boost - dt);
   const CL = CLS[g.cls];
-  const pspd = 150 * CL.spd * (1 + CL.spL * L) * (1 + 0.1 * (ps.speed || 0)) * (g.boost > 0 ? 1.5 : 1);
+  const pspd = 150 * CL.spd * (1 + CL.spL * L) * (1 + 0.1 * (ps.speed || 0)) * (g.boost > 0 ? 1.5 : 1) * (g.pslow > 0 ? 0.45 : 1);
   p.x = clamp(p.x + ix * pspd * dt, p.r, MAP - p.r);
   p.y = clamp(p.y + iy * pspd * dt, p.r, MAP - p.r);
   const ml = Math.hypot(ix, iy);
@@ -556,14 +693,9 @@ function update(dt) {
   // босс: таймер идёт, пока босса нет
   if (!g.boss) {
     g.bossT -= dt;
-    if (g.bossT <= 0) {
-      spawnPos(); addEnemy('b', sp.x, sp.y);
-      const b = g.en[g.en.length - 1];
-      b.hp = b.mh = b.hp * (1 + 0.5 * g.nBoss);
-      g.boss = b; g.qHits = 0; g.volley = 0;
-      g.msg = { text: 'Препод принимает зачёт!', t: 3 };
-    }
+    if (g.bossT <= 0) spawnBoss(g.nBoss % 2 === 0 ? 'b' : 'm');   // препод, Мастер проектов, препод, ...
   }
+  if (g.boss && g.mb && !g.boss.dead) mbossUpdate(g.boss, dt, dtE, L);
   // предметы на карте
   g.itemT -= dt;
   if (g.itemT <= 0) {
@@ -594,9 +726,19 @@ function update(dt) {
     if (e.dead) continue;
     const T = e.T;
     const dx = p.x - e.x, dy = p.y - e.y, d = Math.hypot(dx, dy) || 1;
-    if (d > far && !T.boss) { spawnPos(); e.x = sp.x; e.y = sp.y; continue; }
+    if (d > far && !T.boss && !T.fac) { spawnPos(); e.x = sp.x; e.y = sp.y; continue; }
+    if (T.fac) { // хлебозавод стоит на месте и печёт хлеб, пока жив босс
+      e.ob -= dt; if (e.fl > 0) e.fl -= dt;
+      e.sh -= dtE;
+      if (e.sh <= 0) { e.sh = BAKE_EVERY; if (g.mb && g.mb.ph === 1 && g.bread.length < 60) g.bread.push({ x: e.x, y: e.y, dead: false }); }
+      continue;
+    }
     let mx = dx / d, my = dy / d, sm = T.spd;
-    if (T.boss) {
+    if (T.mboss && g.mb) {
+      const mph = g.mb.ph;
+      if (mph === 3) { if (d < 190) { mx = -mx; my = -my; sm = T.spd * 0.7; } else if (d < 250) sm = 0; } // фигуры кидает с расстояния
+      else if (mph !== 1) sm = T.spd * 1.15;
+    } else if (T.boss) {
       if (d < T.keep - 60) { mx = -mx; my = -my; sm = T.spd * 0.7; }  // отходит, если подошёл близко
       else if (d < T.keep + 30) sm = 0;                                // держит дистанцию
       else if (d > 420) sm = 2.2;                                      // догоняет, если убежал
@@ -626,7 +768,7 @@ function update(dt) {
       }
     }
     if (d < e.r + 14 && p.inv <= 0) {
-      if (hurtPlayer(Math.round(dmgIn * T.dmg))) return;
+      if (hurtPlayer(Math.round(dmgIn * T.dmg * (T.mboss && g.mb ? g.mb.dmgK : 1)))) return;
     }
   }
   g.nLab = labs;
@@ -659,9 +801,75 @@ function update(dt) {
           if (g.shield > 0) { hurtPlayer(0); continue; } // щит гасит и оскорбление
           openQuiz(b.ph); return;
         }
-        if (hurtPlayer(8 + Math.floor(L / 3))) return;
+        if (hurtPlayer(b.d || (8 + Math.floor(L / 3)))) return;
       }
     }
+  }
+
+  // фигуры Мастера проектов: треугольник, лазерный квадрат, полумесяцы
+  if (g.hz.length) {
+    const hzD = 9 + Math.floor(L / 3);
+    for (const h of g.hz) {
+      h.t += dtE;
+      if (h.k === 'tri') {
+        h.x += h.vx * dtE; h.y += h.vy * dtE; h.ob += dtE * 5;
+        let boom = h.t >= h.life || h.x < 30 || h.y < 30 || h.x > MAP - 30 || h.y > MAP - 30;
+        if (phone && !boom) { // щит-телефон взрывает треугольник раньше
+          const dd = Math.hypot(h.x - p.x, h.y - p.y);
+          if (dd < SR + 16) { let da = Math.atan2(h.y - p.y, h.x - p.x) - fa; da = Math.atan2(Math.sin(da), Math.cos(da)); if (Math.abs(da) < phone.arc) boom = true; }
+        }
+        if (p.inv <= 0) {
+          let hit = Math.hypot(p.x - h.x, p.y - h.y) < 18 + p.r * 0.5;
+          for (let i = 0; i < 4 && !hit; i++) {
+            const oa = h.ob + i * TAU / 4;
+            hit = Math.hypot(p.x - (h.x + Math.cos(oa) * 30), p.y - (h.y + Math.sin(oa) * 30)) < 9 + p.r * 0.5;
+          }
+          if (hit && hurtPlayer(hzD)) return;
+        }
+        if (boom) {
+          h.dead = true;
+          for (let i = 0; i < 4; i++) {
+            const oa = h.ob + i * TAU / 4, ox = h.x + Math.cos(oa) * 30, oy = h.y + Math.sin(oa) * 30;
+            const r0 = Math.random() * TAU;
+            for (let j = 0; j < 6 && g.ep.length < 160; j++) {
+              const a = r0 + j * TAU / 6;
+              g.ep.push({ x: ox, y: oy, vx: Math.cos(a) * 140, vy: Math.sin(a) * 140, life: 2.3, r: 6, c: prismColor(i * 0.7 + j * 0.25), d: Math.max(6, hzD - 2) });
+            }
+          }
+          addFx({ k: 'ring', x: h.x, y: h.y, max: 60, t: 0, d: 0.3, col: '123,44,191' });
+        }
+      } else if (h.k === 'sq') {
+        h.h += 200 * dtE;
+        if (h.h >= h.hmax) h.dead = true;
+        else if (p.inv <= 0) {
+          const dx = p.x - h.x, dy = p.y - h.y, m = Math.max(Math.abs(dx), Math.abs(dy));
+          if (Math.abs(m - h.h) < 6 + p.r * 0.6) {
+            const sd = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 0 : 2) : (dy > 0 ? 1 : 3);
+            const co = sd % 2 === 0 ? dy : dx;
+            if (!(sd === h.side && Math.abs(co - h.gc) < 60) && hurtPlayer(hzD)) return;
+          }
+        }
+      } else { // полумесяцы
+        const c = 150 * h.t, sep = Math.min(320, 40 + 70 * h.t);
+        const cx = h.x0 + Math.cos(h.a) * c, cy = h.y0 + Math.sin(h.a) * c;
+        const nx = -Math.sin(h.a), ny = Math.cos(h.a);
+        h.A.x = cx + nx * sep / 2; h.A.y = cy + ny * sep / 2; h.B.x = cx - nx * sep / 2; h.B.y = cy - ny * sep / 2;
+        if (h.t >= h.life || cx < -60 || cy < -60 || cx > MAP + 60 || cy > MAP + 60) h.dead = true;
+        else {
+          if (p.inv <= 0 && (Math.hypot(p.x - h.A.x, p.y - h.A.y) < 12 + p.r * 0.5 || Math.hypot(p.x - h.B.x, p.y - h.B.y) < 12 + p.r * 0.5) && hurtPlayer(hzD)) return;
+          const abx = h.B.x - h.A.x, aby = h.B.y - h.A.y;
+          let u = ((p.x - h.A.x) * abx + (p.y - h.A.y) * aby) / (abx * abx + aby * aby || 1);
+          u = clamp(u, 0, 1);
+          const qx = h.A.x + abx * u - p.x, qy = h.A.y + aby * u - p.y;
+          h.tick -= dtE;
+          if (qx * qx + qy * qy < (7 + p.r) * (7 + p.r)) { // лазер между полумесяцами: замедляет и жжёт
+            g.pslow = 0.5;
+            if (h.tick <= 0) { h.tick = 0.5; if (p.inv <= 0 && hurtPlayer(4 + Math.floor(L / 4))) return; }
+          }
+        }
+      }
+    }
+    compact(g.hz, o => !o.dead);
   }
 
   // --- шпаргалка (орбита) ---
@@ -950,6 +1158,19 @@ function render() {
       ctx.beginPath(); ctx.arc(pt.x, pt.y, s.r, 0, TAU); ctx.fill();
     }
   }
+  // хлеб едет к боссу
+  for (const b of g.bread) { if (b.x < x0 || b.x > x1 || b.y < y0 || b.y > y1) continue; drawSpr(SPR.bread, b.x, b.y); }
+  // чёрная воронка вокруг босса
+  if (g.mb && g.mb.hole > 0 && g.boss && !g.boss.dead) {
+    const e = g.boss, h = g.mb.hole, R = HOLE_R * (0.5 + 0.5 * h);
+    for (let i = 0; i < 6; i++) { ctx.fillStyle = 'rgba(15,0,30,' + (0.11 * h) + ')'; ctx.beginPath(); ctx.arc(e.x, e.y, R * (1 - i * 0.14), 0, TAU); ctx.fill(); }
+    ctx.strokeStyle = 'rgba(150,80,220,' + (0.55 * h) + ')'; ctx.lineWidth = 3; ctx.lineCap = 'round';
+    for (let i = 0; i < 4; i++) {
+      const a0 = g.t * 2.2 + i * TAU / 4;
+      ctx.beginPath(); ctx.arc(e.x, e.y, R * 0.72, a0, a0 + 1.1); ctx.stroke();
+      ctx.beginPath(); ctx.arc(e.x, e.y, R * 0.4, a0 + 2, a0 + 3.1); ctx.stroke();
+    }
+  }
   // враги
   for (const e of g.en) {
     if (e.x < x0 || e.x > x1 || e.y < y0 || e.y > y1) continue;
@@ -957,12 +1178,19 @@ function render() {
     if (T.elite) { // красная аура у элитных
       ctx.fillStyle = 'rgba(217,66,58,0.22)'; ctx.beginPath(); ctx.arc(e.x, e.y, e.r + 8, 0, TAU); ctx.fill();
     }
-    drawSpr(SPR[T.spr], e.x, e.y);
+    if (T.mboss) drawSprK(SPR[g.mb && g.mb.ph === 1 ? 'mk' : 'ma'], e.x, e.y, e.r / 34); else drawSpr(SPR[T.spr], e.x, e.y);
     if (e.fl > 0) { ctx.fillStyle = 'rgba(255,255,255,0.55)'; ctx.beginPath(); ctx.arc(e.x, e.y, e.r, 0, TAU); ctx.fill(); }
     if (T.elite) { // полоска здоровья
       ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.fillRect(e.x - 22, e.y - e.r - 14, 44, 5);
       ctx.fillStyle = '#d9423a'; ctx.fillRect(e.x - 22, e.y - e.r - 14, 44 * Math.max(0, e.hp / e.mh), 5);
     }
+  }
+  // щит босса (пока живы заводы), потом сползает вниз
+  if (g.mb && g.boss && !g.boss.dead && g.mb.shA > 0) {
+    const e = g.boss, a = g.mb.shA, off = (1 - a) * e.r * 1.3;
+    ctx.globalAlpha = a; ctx.fillStyle = 'rgba(90,170,255,0.2)'; ctx.strokeStyle = 'rgba(60,140,255,0.9)'; ctx.lineWidth = 4;
+    ctx.beginPath(); ctx.arc(e.x, e.y + off, e.r + 14, 0, TAU); ctx.fill(); ctx.stroke();
+    ctx.globalAlpha = 1;
   }
   // задачи от лабораторных
   for (const b of g.ep) {
@@ -974,8 +1202,43 @@ function render() {
       ctx.fillText(INS[b.ph].s, b.x, b.y + 1);
       continue;
     }
-    ctx.fillStyle = '#d9423a'; ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
+    ctx.fillStyle = b.c || '#d9423a'; ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
     ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, TAU); ctx.fill(); ctx.stroke();
+  }
+  // фигуры Мастера проектов
+  for (const h of g.hz) {
+    if (h.k === 'tri') {
+      for (let i = 0; i < 4; i++) {
+        const oa = h.ob + i * TAU / 4;
+        ctx.fillStyle = prismColor(h.t * 2 + i * 0.5); ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(h.x + Math.cos(oa) * 30, h.y + Math.sin(oa) * 30, 8, 0, TAU); ctx.fill(); ctx.stroke();
+      }
+      ctx.save(); ctx.translate(h.x, h.y); ctx.rotate(h.a); ctx.drawImage(SPR.tri.c, -20, -20, 40, 40); ctx.restore();
+    } else if (h.k === 'sq') {
+      const hh = h.h, gap = 60;
+      const side = (sd, from, to) => {
+        const a = Math.max(from, -hh), b = Math.min(to, hh);
+        if (b <= a) return;
+        if (sd === 0) { ctx.moveTo(h.x + hh, h.y + a); ctx.lineTo(h.x + hh, h.y + b); }
+        else if (sd === 2) { ctx.moveTo(h.x - hh, h.y + a); ctx.lineTo(h.x - hh, h.y + b); }
+        else if (sd === 1) { ctx.moveTo(h.x + a, h.y + hh); ctx.lineTo(h.x + b, h.y + hh); }
+        else { ctx.moveTo(h.x + a, h.y - hh); ctx.lineTo(h.x + b, h.y - hh); }
+      };
+      for (let pass = 0; pass < 2; pass++) {
+        ctx.strokeStyle = pass === 0 ? 'rgba(255,60,120,0.35)' : prismColor(h.t); ctx.lineWidth = pass === 0 ? 14 : 5; ctx.lineCap = 'round';
+        ctx.beginPath();
+        for (let sd = 0; sd < 4; sd++) {
+          if (sd === h.side) { side(sd, -hh, h.gc - gap); side(sd, h.gc + gap, hh); } else side(sd, -hh, hh);
+        }
+        ctx.stroke();
+      }
+    } else {
+      ctx.strokeStyle = 'rgba(255,60,120,0.35)'; ctx.lineWidth = 12; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(h.A.x, h.A.y); ctx.lineTo(h.B.x, h.B.y); ctx.stroke();
+      ctx.strokeStyle = prismColor(h.t); ctx.lineWidth = 4;
+      ctx.beginPath(); ctx.moveTo(h.A.x, h.A.y); ctx.lineTo(h.B.x, h.B.y); ctx.stroke();
+      for (const q of [h.A, h.B]) { ctx.save(); ctx.translate(q.x, q.y); ctx.rotate(h.a); ctx.drawImage(SPR.cres.c, -22, -22, 44, 44); ctx.restore(); }
+    }
   }
   // игрок
   ctx.fillStyle = 'rgba(0,0,0,0.15)'; ctx.beginPath(); ctx.ellipse(p.x, p.y + 14, 13, 5, 0, 0, TAU); ctx.fill();
@@ -1104,7 +1367,7 @@ function drawHud() {
   if (g.slow > 0) ctx.fillText('⏰ ' + g.slow.toFixed(1), sx2, SAFE + 168);
   // таймер до босса
   ctx.textAlign = 'center'; ctx.font = 'bold 24px sans-serif';
-  if (g.boss && !g.boss.dead) { ctx.fillStyle = '#7a1f2b'; ctx.fillText('ПРЕПОД!', W / 2, SAFE + 30); }
+  if (g.boss && !g.boss.dead) { ctx.fillStyle = '#7a1f2b'; ctx.fillText(g.boss.T.short + '!', W / 2, SAFE + 30); }
   else { ctx.fillStyle = '#2b3a8f'; ctx.fillText(mmss(g.bossT), W / 2, SAFE + 30); }
   ctx.font = '11px sans-serif'; ctx.fillStyle = '#6a7596';
   ctx.fillText(g.boss && !g.boss.dead ? 'победи его' : 'до босса', W / 2, SAFE + 48);
@@ -1122,10 +1385,10 @@ function drawHud() {
   if (g.boss && !g.boss.dead) {
     const bw = Math.min(240, W - 190), bx = W / 2 - bw / 2, by = SAFE + 56;
     ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.fillRect(bx, by, bw, 10);
-    ctx.fillStyle = '#7a1f2b'; ctx.fillRect(bx, by, bw * Math.max(0, g.boss.hp / g.boss.mh), 10);
+    ctx.fillStyle = g.mb && g.mb.ph === 1 ? '#5a7fb5' : '#7a1f2b'; ctx.fillRect(bx, by, bw * Math.max(0, g.boss.hp / g.boss.mh), 10);
     ctx.strokeStyle = '#1b1210'; ctx.lineWidth = 2; ctx.strokeRect(bx, by, bw, 10);
     ctx.fillStyle = '#7a1f2b'; ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText('ПРЕПОД', W / 2, by + 20);
+    ctx.fillText(g.boss.T.name.toUpperCase() + (g.mb && g.mb.ph === 1 ? '  ·  щит, заводов: ' + g.facLeft : ''), W / 2, by + 20);
   }
   // баннер появления элитных
   if (g.msg) {
@@ -1292,13 +1555,8 @@ function cheat() {
   const hpGain = 100; p.max = Math.max(p.max, CLS[g.cls].hp + hpGain + 20 * 5); p.hp = p.max;
   if (g.level < 20) { g.level = 20; g.xp = 0; g.need = needXp(20); g.nextElite = Math.max(g.nextElite, 25); }
   g.bossT = BOSS_EVERY;
-  if (!g.boss) {
-    spawnPos(); addEnemy('b', sp.x, sp.y);
-    const b = g.en[g.en.length - 1];
-    b.hp = b.mh = b.hp * (1 + 0.5 * g.nBoss);
-    g.boss = b; g.qHits = 0; g.volley = 0;
-    g.msg = { text: 'Препод принимает зачёт!', t: 3 };
-  }
+  if (g.boss) { g.boss.dead = true; clearBossStuff(); g.boss = null; g.nBoss++; }   // повторное нажатие: сменить босса
+  spawnBoss(g.nBoss % 2 === 0 ? 'b' : 'm');
 }
 cheatBtn.addEventListener('click', cheat);
 document.addEventListener('visibilitychange', () => { if (document.hidden) pauseGame(); });
@@ -1331,5 +1589,5 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') {
   });
 }
 
-if (location.hash === '#debug') window.__dbg = { newGame, update, render, setState, applyOption, finish, get G() { return G; }, get state() { return state; } };
+if (location.hash === '#debug') window.__dbg = { spawnBoss, clearBossStuff, newGame, update, render, setState, applyOption, finish, get G() { return G; }, get state() { return state; } };
 })();
