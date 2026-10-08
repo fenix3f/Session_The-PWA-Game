@@ -16,7 +16,7 @@ const MAXE = 350;          // максимум врагов одновремен
 const TAU = Math.PI * 2;
 const EF = '"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif';
 const KEY = 'sessiya_v1';
-const BUILD = '0.5d';
+const BUILD = '0.5b01';
 const INS_SPD = 200;       // скорость оскорблений препода
 const INS_TURN = 0.6;      // как быстро они доворачивают к игроку (рад/с)
 const INS_TURN_MAX = 1.0;  // и на сколько всего могут довернуть (рад, около 57°), чтобы только чуть скашивались
@@ -1581,7 +1581,12 @@ function openLevelUp() {
   }
   shuffle(opts);
   g.opts = opts.slice(0, 3);
-  if (!g.opts.length) g.opts = [{ k: 'h', id: 'heal', l: 0 }];
+  if (!g.opts.length) {   // всё прокачано: «обед» срабатывает сам, без экрана выбора
+    const p = g.p, gain = Math.max(0, Math.min(p.max, p.hp + 30) - p.hp);
+    p.hp += gain;
+    g.ft.push({ text: 'обед, +' + Math.round(gain) + ' HP', fill: '#2f9e44', line: 'rgba(255,255,255,0.95)', t: 0, d: 1.5 });
+    return;
+  }
   setState('levelup');
 }
 function applyOption(key) {
