@@ -4,23 +4,25 @@
 // ---------- настройки ----------
 const MAP = 2400;          // размер карты (px)
 const BOSS_EVERY = 300;    // босс приходит каждые 5 минут
-const BOSS_K = 1.4;        // боссы сильнее обычных на 40% (и по HP, и по урону)
+const BOSS_K = 1.7;        // урон боссов относительно обычных
+const BOSS_HPK = 2.5;      // HP боссов относительно обычных (+25% за каждого убитого босса)
+const hyp = (a, b) => Math.sqrt(a * a + b * b);   // Math.hypot заметно медленнее
 // бесконечный режим: все монстры (и боссы) растут вместе с уровнем игрока
-function hpK() { const g = G; return g && g.endless ? 1.5 + 0.1 * (g.level - g.eLv) : 1; }
-function dmK() { const g = G; return g && g.endless ? 1.3 + 0.05 * (g.level - g.eLv) : 1; }
+function hpK() { const g = G; return g && g.endless ? 1.25 + 0.05 * (g.level - g.eLv) : 1; }
+function dmK() { const g = G; return g && g.endless ? 1.15 + 0.03 * (g.level - g.eLv) : 1; }
 const CS = 80;             // размер ячейки сетки для столкновений
 const GN = Math.ceil(MAP / CS);
 const MAXE = 350;          // максимум врагов одновременно
 const TAU = Math.PI * 2;
 const EF = '"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif';
 const KEY = 'sessiya_v1';
-const BUILD = '0.5a';
+const BUILD = '0.5b';
 const INS_SPD = 200;       // скорость оскорблений препода
 const INS_TURN = 0.6;      // как быстро они доворачивают к игроку (рад/с)
 const INS_TURN_MAX = 1.0;  // и на сколько всего могут довернуть (рад, около 57°), чтобы только чуть скашивались
 
 const cv = document.getElementById('c');
-const ctx = cv.getContext('2d');
+const ctx = cv.getContext('2d', { alpha: false });
 const ui = document.getElementById('ui');
 const pauseBtn = document.getElementById('pause');
 const cheatBtn = document.getElementById('cheat');
@@ -69,7 +71,7 @@ function readSafe() {
 
 function resize() {
   W = window.innerWidth; H = window.innerHeight;
-  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  DPR = Math.min(window.devicePixelRatio || 1, 1.5);   // меньше пикселей -> быстрее на телефонах
   cv.width = Math.floor(W * DPR); cv.height = Math.floor(H * DPR);
   cv.style.width = W + 'px'; cv.style.height = H + 'px';
   SC = Math.max(1, Math.min(W, H) / 520);
@@ -137,6 +139,23 @@ function makeSprites() {
   loadImgSprite('boss_angry.png', 76, 'ma');
   loadImgSprite('bakery.png', 96, 'bakery');
   loadImgSprite('bread.png', 22, 'bread');
+}
+// круглые снаряды рисуются готовыми спрайтами (кэш по цвету), а не тремя вызовами path на каждый
+const bulCache = new Map();
+function bulSpr(col, r) {
+  const key = col + r;
+  let s = bulCache.get(key);
+  if (!s) {
+    const sz = Math.ceil((r + 2) * 2 * 2), c = document.createElement('canvas');
+    c.width = c.height = sz;
+    const g = c.getContext('2d');
+    g.fillStyle = col; g.strokeStyle = '#fff'; g.lineWidth = 4;
+    g.beginPath(); g.arc(sz / 2, sz / 2, r * 2, 0, TAU); g.fill(); g.stroke();
+    s = { c, w: sz / 2, h: sz / 2 };
+    if (bulCache.size > 400) bulCache.clear();
+    bulCache.set(key, s);
+  }
+  return s;
 }
 function drawSpr(s, x, y) { ctx.drawImage(s.c, x - s.w / 2, y - s.h / 2, s.w, s.h); }
 function drawSprK(s, x, y, k) { ctx.drawImage(s.c, x - s.w * k / 2, y - s.h * k / 2, s.w * k, s.h * k); }
@@ -262,15 +281,15 @@ cv.addEventListener('pointerdown', e => {
 cv.addEventListener('pointermove', e => {
   if (!joy.active || e.pointerId !== joy.id) return;
   let dx = e.clientX - joy.ox, dy = e.clientY - joy.oy;
-  const len = Math.hypot(dx, dy);
+  const len = hyp(dx, dy);
   if (len > JR) { // круг "плывёт" за пальцем
     joy.ox += dx / len * (len - JR); joy.oy += dy / len * (len - JR);
     dx = e.clientX - joy.ox; dy = e.clientY - joy.oy;
   }
   joy.px = e.clientX; joy.py = e.clientY;
-  const l = Math.hypot(dx, dy) / JR;
+  const l = hyp(dx, dy) / JR;
   if (l < 0.12) { joy.x = 0; joy.y = 0; }
-  else { const k = Math.min(1, l) / Math.hypot(dx, dy); joy.x = dx * k; joy.y = dy * k; }
+  else { const k = Math.min(1, l) / hyp(dx, dy); joy.x = dx * k; joy.y = dy * k; }
   e.preventDefault();
 });
 function joyUp(e) { if (joy.active && e.pointerId === joy.id) joyReset(); }
@@ -293,7 +312,7 @@ let G = null;
 
 function makeDecor() {
   const d = [];
-  const ok = (x, y) => Math.hypot(x - MAP / 2, y - MAP / 2) > 160;
+  const ok = (x, y) => hyp(x - MAP / 2, y - MAP / 2) > 160;
   for (let i = 0; i < 46; i++) {
     let x, y; do { x = rnd(150, MAP - 250); y = rnd(100, MAP - 150); } while (!ok(x, y));
     d.push({ k: 0, x, y, w: 96, h: 54 });
@@ -327,18 +346,18 @@ function newGame(cls) {
 const sp = { x: 0, y: 0 };
 function spawnPos() {
   const p = G.p;
-  const R = Math.hypot(W, H) / 2 / SC + 50;
+  const R = hyp(W, H) / 2 / SC + 50;
   for (let tries = 0; tries < 8; tries++) {
     const a = Math.random() * TAU, r = R + Math.random() * 40;
     const x = clamp(p.x + Math.cos(a) * r, 20, MAP - 20);
     const y = clamp(p.y + Math.sin(a) * r, 20, MAP - 20);
     sp.x = x; sp.y = y;
-    if (Math.hypot(x - p.x, y - p.y) > R * 0.85) return;
+    if (hyp(x - p.x, y - p.y) > R * 0.85) return;
   }
 }
 function addEnemy(type, x, y) {
   const T = ET[type];
-  const hp = (10 + (G.level - 1) * 3) * T.hp * hpK() * (T.boss ? BOSS_K : 1);
+  const hp = (10 + (G.level - 1) * 3) * T.hp * hpK() * (T.boss ? BOSS_HPK * (1 + 0.25 * (G.nBoss || 0)) : 1);
   G.en.push({ type, T, r: T.r, x, y, hp, mh: hp, kx: 0, ky: 0, ob: 0, fl: 0, sh: 1 + Math.random() * 2, dead: false });
 }
 function spawnEnemy(type) {
@@ -380,10 +399,10 @@ function spawnItem(k) {
   let bx = MAP / 2, by = MAP / 2, bd = -1;
   for (let i = 0; i < 12; i++) {
     const x = rnd(90, MAP - 90), y = rnd(90, MAP - 90);
-    if (Math.hypot(x - p.x, y - p.y) < 180) continue;
+    if (hyp(x - p.x, y - p.y) < 180) continue;
     let md = 1e9;
-    for (const it of G.items) md = Math.min(md, Math.hypot(x - it.x, y - it.y));
-    for (const o of G.pickedAt) md = Math.min(md, Math.hypot(x - o.x, y - o.y));
+    for (const it of G.items) md = Math.min(md, hyp(x - it.x, y - it.y));
+    for (const o of G.pickedAt) md = Math.min(md, hyp(x - o.x, y - o.y));
     if (md > bd) { bd = md; bx = x; by = y; }
   }
   G.items.push({ k, x: bx, y: by, ph: Math.random() * TAU });
@@ -412,7 +431,7 @@ function spawnBoss(kind) {
   b.hp = b.mh = b.hp * (1 + 0.5 * g.nBoss);
   g.boss = b; g.qHits = 0; g.volley = 0; g.bossT = BOSS_EVERY;
   if (kind === 'm') {
-    g.mb = { ph: 1, shA: 1, base: b.r, hole: 0, dmgK: 1, eaten: 0, fed: 0, stopHp: 0, atkT: 3, atkI: 0, pend: null, suck2: false, t: 0 };
+    g.mb = { ph: 1, shA: 1, base: b.r, hole: 0, dmgK: 1, eaten: 0, fed: 0, baked: 0, stopHp: 0, atkT: 3, atkI: 0, pend: null, suck2: false, t: 0 };
     // по заводу у каждого края карты, на дальней от игрока половине стороны
     const M = 160, fy = p.y < MAP / 2 ? MAP * 0.78 : MAP * 0.22, fx = p.x < MAP / 2 ? MAP * 0.78 : MAP * 0.22;
     for (const q of [[M, fy], [MAP - M, fy], [fx, M], [fx, MAP - M]]) { addEnemy('f', q[0], q[1]); g.facLeft++; }
@@ -430,18 +449,20 @@ function bossShout(e, text, d) { G.shout = { text, e, t: 0, d: d || 3 }; }
 // ---------- босс «Мастер проектов» ----------
 const HOLE_R = 190;          // радиус чёрной воронки
 const BAKE_EVERY = 3.2;      // как часто завод печёт хлеб
+const BREAD_MAX = 150;       // максимум буханок на карте (старые исчезают первыми)
 const ATK_TXT = ['Условно офисы', 'Условно коммутатор', 'Условно проводка'];
 function prismColor(t) { return 'hsl(' + Math.floor((t * 160) % 360) + ',90%,60%)'; }
 function mbossUpdate(e, dt, dtE, L) {
   const g = G, mb = g.mb;
   if (mb.ph === 1) {
-    // хлеб медленно едет к боссу, съеденный хлеб его раздувает
+    // хлеб лежит вокруг босса; когда босс задевает буханку, он её съедает и раздувается
+    let any = false;
     for (const b of g.bread) {
-      const dx = e.x - b.x, dy = e.y - b.y, d = Math.hypot(dx, dy) || 1;
-      if (d < e.r + 4) { b.dead = true; e.r = Math.min(mb.base * 2.1, e.r + 1.2); mb.fed++; }
-      else { b.x += dx / d * 42 * dtE; b.y += dy / d * 42 * dtE; }
+      const dx = e.x - b.x, dy = e.y - b.y;
+      const rr = e.r + 26;
+      if (dx * dx + dy * dy < rr * rr) { b.dead = true; any = true; e.r = Math.min(mb.base * 2.1, e.r + 0.8); mb.fed++; }
     }
-    compact(g.bread, o => !o.dead);
+    if (any) compact(g.bread, o => !o.dead);
     if (g.facLeft <= 0) {
       mb.ph = 2; mb.t = 0; mb.stopHp = e.hp - 0.2 * e.mh;
       g.bread.length = 0;
@@ -460,7 +481,7 @@ function mbossUpdate(e, dt, dtE, L) {
     if (mb.hole > 0.4) {
       for (const o of g.en) {
         if (o.dead || o === e || o.T.boss || o.T.fac) continue;
-        const dx = e.x - o.x, dy = e.y - o.y, d = Math.hypot(dx, dy) || 1;
+        const dx = e.x - o.x, dy = e.y - o.y, d = hyp(dx, dy) || 1;
         if (d > HOLE_R) continue;
         if (d < e.r + 10) {
           o.dead = true; mb.eaten++;
@@ -474,7 +495,7 @@ function mbossUpdate(e, dt, dtE, L) {
       }
     }
     { // воронка тянет и игрока: убежать можно, но медленнее
-      const pdx = e.x - g.p.x, pdy = e.y - g.p.y, pd = Math.hypot(pdx, pdy) || 1;
+      const pdx = e.x - g.p.x, pdy = e.y - g.p.y, pd = hyp(pdx, pdy) || 1;
       if (mb.hole > 0.4 && pd < HOLE_R && pd > e.r + 6) {
         const pl = 70 * (1 + (HOLE_R - pd) / HOLE_R) * dtE * mb.hole;
         g.p.x = clamp(g.p.x + pdx / pd * pl, g.p.r, MAP - g.p.r); g.p.y = clamp(g.p.y + pdy / pd * pl, g.p.r, MAP - g.p.r);
@@ -493,7 +514,7 @@ function mbossUpdate(e, dt, dtE, L) {
       mb.atkT -= dtE;
       if (mb.atkT <= 0) {
         const i = mb.atkI++ % 3;
-        mb.pend = { i, t: 0.9 }; mb.atkT = 3.2;
+        mb.pend = { i, t: 0.9 }; mb.atkT = 3.2; e.cast = rnd(1, 2);
         bossShout(e, ATK_TXT[i], 2.2);
       }
     }
@@ -612,10 +633,12 @@ function near(x, y, r) {
   }
   return nb;
 }
-function separate() {
-  const grid = G.grid;
+function separate(k) {
+  const grid = G.grid, p = G.p;
+  const vx = W / SC / 2 + 140, vy = H / SC / 2 + 140;   // за пределами экрана враги не расталкиваются
   for (const e of G.en) {
-    if (e.dead) continue;
+    if (e.dead || e.T.fac) continue;
+    if (e.x < p.x - vx || e.x > p.x + vx || e.y < p.y - vy || e.y > p.y + vy) continue;
     const cx = clamp(Math.floor(e.x / CS), 0, GN - 1), cy = clamp(Math.floor(e.y / CS), 0, GN - 1);
     for (let oy = -1; oy <= 1; oy++) for (let ox = -1; ox <= 1; ox++) {
       const gx = cx + ox, gy = cy + oy;
@@ -627,7 +650,7 @@ function separate() {
         const dx = e.x - o.x, dy = e.y - o.y, d2 = dx * dx + dy * dy;
         const MIN = (e.r + o.r) * 0.85;
         if (d2 < MIN * MIN && d2 > 0.01) {
-          const d = Math.sqrt(d2), push = (MIN - d) * 0.5;
+          const d = Math.sqrt(d2), push = (MIN - d) * k;
           e.x += dx / d * push; e.y += dy / d * push;
         }
       }
@@ -679,14 +702,15 @@ function update(dt) {
   let ix = joy.x, iy = joy.y;
   if (kd.l || kd.r || kd.u || kd.d) {
     ix = (kd.r ? 1 : 0) - (kd.l ? 1 : 0); iy = (kd.d ? 1 : 0) - (kd.u ? 1 : 0);
-    const l = Math.hypot(ix, iy); if (l > 1) { ix /= l; iy /= l; }
+    const l = hyp(ix, iy); if (l > 1) { ix /= l; iy /= l; }
   }
   g.boost = Math.max(0, g.boost - dt);
   const CL = CLS[g.cls];
   const pspd = 150 * CL.spd * (1 + CL.spL * L) * (1 + 0.1 * (ps.speed || 0)) * (g.boost > 0 ? 1.5 : 1) * (g.pslow > 0 ? 0.45 : 1);
+  const pBase = pspd / (g.pslow > 0 ? 0.45 : 1);   // скорость игрока без замедления воронкой: от неё считается скорость боссов
   p.x = clamp(p.x + ix * pspd * dt, p.r, MAP - p.r);
   p.y = clamp(p.y + iy * pspd * dt, p.r, MAP - p.r);
-  const ml = Math.hypot(ix, iy);
+  const ml = hyp(ix, iy);
   if (ml > 0.05) { p.fx = ix / ml; p.fy = iy / ml; }
   p.inv = Math.max(0, p.inv - dt);
   g.shake = Math.max(0, g.shake - 40 * dt);
@@ -737,10 +761,11 @@ function update(dt) {
   if (g.shout) { g.shout.t += dt; if (g.shout.t >= g.shout.d || g.shout.e.dead) g.shout = null; }
 
   buildGrid();
-  separate();
+  g.sepF = !g.sepF;
+  if (g.sepF) separate(0.65);               // расталкивание через кадр (вдвое дешевле)
 
   // враги: движение и контакт
-  const far = Math.hypot(W, H) / SC * 0.5 + 420;
+  const far = hyp(W, H) / SC * 0.5 + 420;
   const esp = (52 + Math.min(L * 0.9, 30)) * sk;
   const dmgIn = (8 + Math.floor(L / 3) * 2) * dmK();
   const phone = g.w.phone ? stl('phone') : null, fa = Math.atan2(p.fy, p.fx);
@@ -749,28 +774,35 @@ function update(dt) {
   for (const e of g.en) {
     if (e.dead) continue;
     const T = e.T;
-    const dx = p.x - e.x, dy = p.y - e.y, d = Math.hypot(dx, dy) || 1;
+    const dx = p.x - e.x, dy = p.y - e.y, d = hyp(dx, dy) || 1;
     if (d > far && !T.boss && !T.fac) { spawnPos(); e.x = sp.x; e.y = sp.y; continue; }
     if (T.fac) { // хлебозавод стоит на месте и печёт хлеб, пока жив босс
       e.ob -= dt; if (e.fl > 0) e.fl -= dt;
       e.sh -= dtE;
       e.sp2 = (e.sp2 === undefined ? 5 : e.sp2) - dtE;      // заводы выпускают курсовые, чтобы игрок не сидел спокойно
       if (e.sp2 <= 0 && g.mb && g.mb.ph === 1) { e.sp2 = 6; for (let k = 0; k < 2 && g.en.length < MAXE; k++) addEnemy(pickType(), clamp(e.x + rnd(-30, 30), 20, MAP - 20), clamp(e.y + rnd(-30, 30), 20, MAP - 20)); }
-      if (e.sh <= 0) { e.sh = BAKE_EVERY; if (g.mb && g.mb.ph === 1 && g.bread.length < 60) g.bread.push({ x: e.x, y: e.y, dead: false }); }
+      if (e.sh <= 0) {
+        e.sh = BAKE_EVERY;
+        if (g.mb && g.mb.ph === 1 && g.boss && !g.boss.dead) {   // хлеб появляется вокруг босса
+          const ba = Math.random() * TAU, br = g.boss.r + 20 + Math.random() * 90;
+          if (g.bread.length >= BREAD_MAX) g.bread.shift();
+          g.bread.push({ x: clamp(g.boss.x + Math.cos(ba) * br, 10, MAP - 10), y: clamp(g.boss.y + Math.sin(ba) * br, 10, MAP - 10), dead: false });
+          g.mb.baked++;
+        }
+      }
       continue;
     }
-    let mx = dx / d, my = dy / d, sm = T.spd;
+    let mx = dx / d, my = dy / d, sm = T.spd, bv = -1;   // bv >= 0: босс идёт с заданной скоростью (доля от скорости игрока)
+    if (e.cast > 0) e.cast -= dt;
     if (T.mboss && g.mb) {
       const mph = g.mb.ph;
-      if (mph === 3) { if (d < 190) { mx = -mx; my = -my; sm = T.spd * 0.7; } else if (d < 250) sm = 0; } // фигуры кидает с расстояния
-      else if (mph !== 1) sm = T.spd * 1.15;
-      else sm = T.spd * (1 + 0.025 * g.mb.fed);   // чем больше хлеба съел, тем быстрее
+      if (mph === 1) bv = pBase * 0.75;
+      else if (mph === 3) bv = pBase * (e.cast > 0 ? 0.2 : 1.1);   // фигуры: как у препода, наседает, но на касте почти встаёт
+      else bv = pBase * 0.8;                                       // воронка
     } else if (T.boss) {
-      if (d < T.keep - 60) { mx = -mx; my = -my; sm = T.spd * 0.7; }  // отходит, если подошёл близко
-      else if (d < T.keep + 30) sm = 0;                                // держит дистанцию
-      else if (d > 420) sm = 2.2;                                      // догоняет, если убежал
+      bv = pBase * (e.cast > 0 ? 0.2 : 1.1);
       e.sh -= dtE;
-      if (e.sh <= 0) { e.sh = 2.8; fireInsults(e); }
+      if (e.sh <= 0) { e.sh = 2.8; e.cast = rnd(1, 2); fireInsults(e); }
     }
     if (T.ranged) {
       labs++;
@@ -783,8 +815,9 @@ function update(dt) {
       }
     }
     e.kx *= kdec; e.ky *= kdec;
-    e.x = clamp(e.x + (mx * esp * sm + e.kx) * dt, 12, MAP - 12);
-    e.y = clamp(e.y + (my * esp * sm + e.ky) * dt, 12, MAP - 12);
+    const mv = bv >= 0 ? bv * sk : esp * sm;
+    e.x = clamp(e.x + (mx * mv + e.kx) * dt, 12, MAP - 12);
+    e.y = clamp(e.y + (my * mv + e.ky) * dt, 12, MAP - 12);
     e.ob -= dt; if (e.fl > 0) e.fl -= dt;
     if (phone && !T.elite && d < e.r + SR) {   // элитные и боссы проходят сквозь щит
       // щит-телефон: враг в секторе упирается в него
@@ -803,13 +836,6 @@ function update(dt) {
 
   // снаряды врагов (задачи от лабораторных)
   for (const b of g.ep) {
-    if (phone && !b.q && !b.c) { // щит-телефон гасит только обычные задачи (не примеры препода и не снаряды боссов)
-      const dx = b.x - p.x, dy = b.y - p.y, dd = Math.hypot(dx, dy);
-      if (dd < SR + b.r + 4) {
-        let da = Math.atan2(dy, dx) - fa; da = Math.atan2(Math.sin(da), Math.cos(da));
-        if (Math.abs(da) < phone.arc) { b.life = 0; addFx({ k: 'pop', x: b.x, y: b.y, t: 0, d: 0.2, big: 1 }); continue; }
-      }
-    }
     if (b.q) { // оскорбление чуть-чуть скашивается в сторону игрока
       let da = Math.atan2(p.y - b.y, p.x - b.x) - Math.atan2(b.vy, b.vx);
       da = Math.atan2(Math.sin(da), Math.cos(da));
@@ -843,10 +869,10 @@ function update(dt) {
         h.x += h.vx * dtE; h.y += h.vy * dtE; h.ob += dtE * 5;
         const boom = h.t >= h.life || h.x < 30 || h.y < 30 || h.x > MAP - 30 || h.y > MAP - 30;
         if (p.inv <= 0) {
-          let hit = Math.hypot(p.x - h.x, p.y - h.y) < 18 + p.r * 0.5;
+          let hit = hyp(p.x - h.x, p.y - h.y) < 18 + p.r * 0.5;
           for (let i = 0; i < h.no && !hit; i++) {
             const oa = h.ob + i * TAU / h.no;
-            hit = Math.hypot(p.x - (h.x + Math.cos(oa) * h.orR), p.y - (h.y + Math.sin(oa) * h.orR)) < 9 + p.r * 0.5;
+            hit = hyp(p.x - (h.x + Math.cos(oa) * h.orR), p.y - (h.y + Math.sin(oa) * h.orR)) < 9 + p.r * 0.5;
           }
           if (hit && hurtPlayer(hzD)) return;
         }
@@ -880,7 +906,7 @@ function update(dt) {
         h.A.x = cx + nx * sep / 2; h.A.y = cy + ny * sep / 2; h.B.x = cx - nx * sep / 2; h.B.y = cy - ny * sep / 2;
         if (h.t >= h.life || cx < -60 || cy < -60 || cx > MAP + 60 || cy > MAP + 60) h.dead = true;
         else {
-          if (p.inv <= 0 && (Math.hypot(p.x - h.A.x, p.y - h.A.y) < 14 + p.r * 0.5 || Math.hypot(p.x - h.B.x, p.y - h.B.y) < 14 + p.r * 0.5) && hurtPlayer(hzD)) return;
+          if (p.inv <= 0 && (hyp(p.x - h.A.x, p.y - h.A.y) < 14 + p.r * 0.5 || hyp(p.x - h.B.x, p.y - h.B.y) < 14 + p.r * 0.5) && hurtPlayer(hzD)) return;
           const abx = h.B.x - h.A.x, aby = h.B.y - h.A.y;
           let u = ((p.x - h.A.x) * abx + (p.y - h.A.y) * aby) / (abx * abx + aby * aby || 1);
           u = clamp(u, 0, 1);
@@ -909,7 +935,7 @@ function update(dt) {
         if (e.dead || e.ob > 0) continue;
         const dx = e.x - ox, dy = e.y - oy, hr = 14 + e.r;
         if (dx * dx + dy * dy < hr * hr) {
-          const ax = e.x - p.x, ay = e.y - p.y, al = Math.hypot(ax, ay) || 1;
+          const ax = e.x - p.x, ay = e.y - p.y, al = hyp(ax, ay) || 1;
           hitEnemy(e, s.dmg * wx('sheet') * mulDmg, ax / al * 90, ay / al * 90);
           e.ob = 0.35;
         }
@@ -968,7 +994,7 @@ function update(dt) {
       for (let k = 0; k < list.length; k++) {
         const e = list[k];
         if (e.dead) continue;
-        const dx = e.x - p.x, dy = e.y - p.y, d = Math.hypot(dx, dy) || 1;
+        const dx = e.x - p.x, dy = e.y - p.y, d = hyp(dx, dy) || 1;
         if (d < s.rad + e.r) hitEnemy(e, s.dmg * wx('energy') * mulDmg, dx / d * 260, dy / d * 260);
       }
       addFx({ k: 'ring', x: p.x, y: p.y, max: s.rad, t: 0, d: 0.35 });
@@ -979,7 +1005,7 @@ function update(dt) {
   // --- помада (красный след) ---
   if (w.lip) {
     const s = stl('lip');
-    if (Math.hypot(p.x - g.lipX, p.y - g.lipY) > 14) {
+    if (hyp(p.x - g.lipX, p.y - g.lipY) > 14) {
       g.lip.push({ x: p.x, y: p.y, t: s.life, m: s.life });
       g.lipX = p.x; g.lipY = p.y;
       if (g.lip.length > 70) g.lip.shift();
@@ -1016,14 +1042,14 @@ function update(dt) {
     let boom = m.fuse <= 0;
     if (!boom) {
       const list = near(m.x, m.y, 40);
-      for (let k = 0; k < list.length; k++) { const e = list[k]; if (!e.dead && Math.hypot(e.x - m.x, e.y - m.y) < e.r + 12) { boom = true; break; } }
+      for (let k = 0; k < list.length; k++) { const e = list[k]; if (!e.dead && hyp(e.x - m.x, e.y - m.y) < e.r + 12) { boom = true; break; } }
     }
     if (boom) {
       m.dead = true;
       const s = m.s, list = near(m.x, m.y, s.rad + 26);
       for (let k = 0; k < list.length; k++) {
         const e = list[k]; if (e.dead) continue;
-        const dx = e.x - m.x, dy = e.y - m.y, d = Math.hypot(dx, dy) || 1;
+        const dx = e.x - m.x, dy = e.y - m.y, d = hyp(dx, dy) || 1;
         if (d < s.rad + e.r) hitEnemy(e, s.dmg * wx('medal') * mulDmg, dx / d * 240, dy / d * 240);
       }
       addFx({ k: 'ring', x: m.x, y: m.y, max: s.rad, t: 0, d: 0.35, col: '230,170,30' });
@@ -1046,7 +1072,7 @@ function update(dt) {
         }
       }
       if (pr.tg) {
-        const dx = pr.tg.x - pr.x, dy = pr.tg.y - pr.y, d = Math.hypot(dx, dy) || 1;
+        const dx = pr.tg.x - pr.x, dy = pr.tg.y - pr.y, d = hyp(dx, dy) || 1;
         const k = Math.min(1, dt * 6);
         pr.vx += (dx / d * 300 - pr.vx) * k; pr.vy += (dy / d * 300 - pr.vy) * k;
       }
@@ -1061,7 +1087,7 @@ function update(dt) {
       const dx = e.x - pr.x, dy = e.y - pr.y, rr = (pr.r + e.r) * (pr.r + e.r);
       if (dx * dx + dy * dy > rr) continue;
       if (pr.hit && pr.hit.indexOf(e) >= 0) continue;
-      const vl = Math.hypot(pr.vx, pr.vy) || 1;
+      const vl = hyp(pr.vx, pr.vy) || 1;
       hitEnemy(e, pr.dmg * mulDmg, pr.vx / vl * 70, pr.vy / vl * 70);
       if (pr.type === 'g') { pr.life = 0; break; }
       pr.hit.push(e);
@@ -1072,7 +1098,7 @@ function update(dt) {
   // баллы (опыт)
   const magR = 70 * (1 + 0.35 * (ps.magnet || 0));
   for (const gm of g.gems) {
-    const dx = p.x - gm.x, dy = p.y - gm.y, d = Math.hypot(dx, dy) || 1;
+    const dx = p.x - gm.x, dy = p.y - gm.y, d = hyp(dx, dy) || 1;
     if (!gm.mg && d < magR) gm.mg = true;
     if (gm.mg) { const s = 320 + (magR - Math.min(d, magR)) * 2; gm.x += dx / d * s * dt; gm.y += dy / d * s * dt; }
     if (d < 16) { g.xp += gm.v; gm.dead = true; }
@@ -1143,9 +1169,11 @@ function render() {
     }
   }
   // надпись на полу
-  ctx.fillStyle = 'rgba(43,58,143,0.06)'; ctx.font = 'bold 130px sans-serif';
-  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.fillText('СЕССИЯ', MAP / 2, MAP / 2 - 260);
+  if (x1 > MAP / 2 - 330 && x0 < MAP / 2 + 330 && y1 > MAP / 2 - 340 && y0 < MAP / 2 - 180) {
+    ctx.fillStyle = 'rgba(43,58,143,0.06)'; ctx.font = 'bold 130px sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('СЕССИЯ', MAP / 2, MAP / 2 - 260);
+  }
   // декор
   for (const d of g.decor) {
     if (d.k === 0) {
@@ -1226,8 +1254,7 @@ function render() {
       ctx.fillText(INS[b.ph].s, b.x, b.y + 1);
       continue;
     }
-    ctx.fillStyle = b.c || '#d9423a'; ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, TAU); ctx.fill(); ctx.stroke();
+    drawSpr(bulSpr(b.c || '#d9423a', b.r), b.x, b.y);
   }
   // фигуры Мастера проектов
   for (const h of g.hz) {
@@ -1311,7 +1338,7 @@ function render() {
   for (const pr of g.pr) {
     if (pr.type === 'g') drawSpr(SPR.google, pr.x, pr.y);
     else {
-      const l = Math.hypot(pr.vx, pr.vy) || 1;
+      const l = hyp(pr.vx, pr.vy) || 1;
       ctx.strokeStyle = '#1f3fbf'; ctx.lineWidth = 4;
       ctx.beginPath(); ctx.moveTo(pr.x, pr.y); ctx.lineTo(pr.x - pr.vx / l * 16, pr.y - pr.vy / l * 16); ctx.stroke();
     }
@@ -1424,7 +1451,7 @@ function drawHud() {
     ctx.fillStyle = g.mb && g.mb.ph === 1 ? '#5a7fb5' : '#7a1f2b'; ctx.fillRect(bx, by, bw * Math.max(0, g.boss.hp / g.boss.mh), 10);
     ctx.strokeStyle = '#1b1210'; ctx.lineWidth = 2; ctx.strokeRect(bx, by, bw, 10);
     ctx.fillStyle = '#7a1f2b'; ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText(g.boss.T.name.toUpperCase() + (g.mb && g.mb.ph === 1 ? '  ·  щит, заводов: ' + g.facLeft : ''), W / 2, by + 20);
+    ctx.fillText(g.boss.T.name.toUpperCase() + (g.mb && g.mb.ph === 1 ? '  ·  щит, заводов: ' + g.facLeft + '  ·  🍞 ' + g.mb.baked : ''), W / 2, by + 20);
   }
   // баннер появления элитных
   if (g.msg) {
