@@ -5,7 +5,7 @@
 const MAP = 2400;          // размер карты (px)
 const BOSS_EVERY = 300;    // босс приходит каждые 5 минут
 const BOSS_K = 1.7;        // урон боссов относительно обычных
-const BOSS_HPK = 2.5;      // HP боссов относительно обычных (+25% за каждого убитого босса)
+const BOSS_HPK = 3.5;      // HP боссов относительно обычных (+25% за каждого убитого босса)
 const hyp = (a, b) => Math.sqrt(a * a + b * b);   // Math.hypot заметно медленнее
 // бесконечный режим: все монстры (и боссы) растут вместе с уровнем игрока
 function hpK() { const g = G; return g && g.endless ? 1.25 + 0.05 * (g.level - g.eLv) : 1; }
@@ -16,7 +16,7 @@ const MAXE = 350;          // максимум врагов одновремен
 const TAU = Math.PI * 2;
 const EF = '"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif';
 const KEY = 'sessiya_v1';
-const BUILD = '0.5c';
+const BUILD = '0.5d';
 const INS_SPD = 200;       // скорость оскорблений препода
 const INS_TURN = 0.6;      // как быстро они доворачивают к игроку (рад/с)
 const INS_TURN_MAX = 1.0;  // и на сколько всего могут довернуть (рад, около 57°), чтобы только чуть скашивались
@@ -458,7 +458,7 @@ function mbossUpdate(e, dt, dtE, L) {
     // хлеб от заводов медленно едет к боссу; съеденный раздувает его
     for (const b of g.bread) {
       const dx = e.x - b.x, dy = e.y - b.y, d = hyp(dx, dy) || 1;
-      if (d < e.r + 4) { b.dead = true; e.r = Math.min(mb.base * 2.1, e.r + 0.8); mb.fed++; }
+      if (d < e.r + 4) { b.dead = true; e.r = Math.min(mb.base * 2.1, e.r + 0.8); mb.fed++; e.mh += 3; e.hp += 3; }
       else { b.x += dx / d * 42 * dtE; b.y += dy / d * 42 * dtE; }
     }
     compact(g.bread, o => !o.dead);
@@ -472,7 +472,7 @@ function mbossUpdate(e, dt, dtE, L) {
     if (mb.inhale) {
       for (const b of g.bread) {
         const dx = e.x - b.x, dy = e.y - b.y, d = hyp(dx, dy) || 1;
-        if (d < e.r + 8) { b.dead = true; mb.fed++; mb.dmgK = Math.min(3, mb.dmgK + 0.01); e.hp = Math.min(e.mh, e.hp + 0.004 * e.mh); e.r = Math.min(mb.base * 2.1, e.r + 0.8); }
+        if (d < e.r + 8) { b.dead = true; mb.fed++; mb.dmgK = Math.min(3, mb.dmgK + 0.01); e.mh += 3; e.hp += 3; e.r = Math.min(mb.base * 2.1, e.r + 0.8); }
         else { const v = 420 * dtE; b.x += dx / d * v; b.y += dy / d * v; }
       }
       compact(g.bread, o => !o.dead);
@@ -805,11 +805,15 @@ function update(dt) {
       const mph = g.mb.ph, fat = clamp((e.r - g.mb.base) / (g.mb.base * 1.1), 0, 1);
       if (mph === 1) bv = pBase * (0.75 - 0.15 * fat);   // чем толще, тем медленнее: 0.75 -> 0.6
       else if (mph === 3) bv = pBase * (e.cast > 0 ? 0.2 : 0.75);   // фигуры: как у препода, наседает, но на касте почти встаёт
-      else bv = pBase * (0.8 - 0.15 * fat);                        // воронка: 0.8 -> 0.65 (пока толстый)
+      else bv = pBase * 0.4;                                       // воронка: босс медленный, можно выбраться
     } else if (T.boss) {
       bv = pBase * (e.cast > 0 ? 0.2 : 0.75);
       e.sh -= dtE;
       if (e.sh <= 0) { e.sh = 2.8; e.cast = rnd(1, 2); fireInsults(e); }
+    }
+    if (g.mb && (g.mb.ph === 2 || g.mb.ph === 4) && g.boss && !g.boss.dead && !T.boss) {   // воронка: все монстры тянутся к Мастеру, медленнее
+      const bx = g.boss.x - e.x, by = g.boss.y - e.y, bd = hyp(bx, by) || 1;
+      mx = bx / bd; my = by / bd; sm = T.spd * 0.5;
     }
     if (T.ranged) {
       labs++;

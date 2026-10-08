@@ -1,5 +1,5 @@
 // Меняй версию при каждом обновлении игры (чистит старый кэш)
-const CACHE = 'sessiya-v14';
+const CACHE = 'sessiya-v15';
 const ASSETS = ['./', 'index.html', 'game.js', 'manifest.json', 'icon-180.png', 'icon-192.png', 'icon-512.png', 'boss.png', 'boss_kind.png', 'boss_angry.png', 'bakery.png', 'bread.png'];
 const NET_TIMEOUT = 4000; // столько ждём сеть, потом отдаём то, что в кэше
 
